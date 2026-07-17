@@ -1,0 +1,17 @@
+# Userspace binaries
+vbt-medium
+vbt-controller
+
+# Object files / build artifacts
+*.o
+*.d
+*.a
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Editor / OS cruft
+*.swp
+*~
+.DS_Store
