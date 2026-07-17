@@ -1,0 +1,8 @@
+# Virtual BLE controller (virtio-bluetooth) device emulation
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+config VBT_VIRTIO
+    bool
+    default y
+    depends on VIRTIO_PCI
