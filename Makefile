@@ -24,8 +24,12 @@ userspace: $(USERSPACE_BINS)
 vbt-medium: vbt_medium.c vbt.h
 	$(CC) $(CFLAGS) -o $@ $< $(LDLIBS_MEDIUM)
 
-vbt-controller: vbt_controller.c vbt.h
-	$(CC) $(CFLAGS) -o $@ $<
+vbt-controller: vbt_controller.c vbt_ll.c vbt_ll.h vbt.h
+	$(CC) $(CFLAGS) -o $@ vbt_controller.c vbt_ll.c
+
+# Controller-core unit test (no kernel / QEMU needed)
+test-ll: tests/test_ll.c vbt_ll.c vbt_ll.h vbt.h
+	$(CC) $(CFLAGS) -o $@ tests/test_ll.c vbt_ll.c
 
 # Install destination (DESTDIR for staged/packaged installs).
 PREFIX  ?= /usr/local
@@ -39,10 +43,11 @@ install: $(USERSPACE_BINS)
 uninstall:
 	rm -f $(addprefix $(DESTDIR)$(BINDIR)/,$(USERSPACE_BINS))
 
-test: vbt-medium
+test: vbt-medium test-ll
+	./test-ll
 	python3 tests/harness.py
 
 clean:
-	rm -f $(USERSPACE_BINS)
+	rm -f $(USERSPACE_BINS) test-ll
 
-.PHONY: all userspace install uninstall test clean
+.PHONY: all userspace install uninstall test test-ll clean

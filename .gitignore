@@ -1,6 +1,7 @@
 # Userspace binaries
 vbt-medium
 vbt-controller
+test-ll
 
 # Object files / build artifacts
 *.o
