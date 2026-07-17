@@ -64,7 +64,15 @@ No kernel headers or QEMU tree required:
 
 ```bash
 make                 # builds vbt-medium and vbt-controller
-make test            # runs tests/harness.py against ./vbt-medium
+make test            # test-ll (controller core) + tests/harness.py (hub)
+```
+
+See [`BUILD.md`](BUILD.md) for manual build commands. For a one-command
+host demo (starts the hub and, as root with `hci_vhci`, two host
+controllers):
+
+```bash
+make && sudo scripts/lab-demo.sh 2
 ```
 
 ### QEMU device model
