@@ -52,7 +52,8 @@ understand L2CAP, ATT, or SMP.
 | `vbt_medium.c` → `vbt-medium` | Userspace medium hub: fans out advertising PDUs, routes connection data point-to-point (CONNECT_IND snoop), models path loss |
 | `vbt_ll.c` / `vbt_ll.h` | Portable BLE controller core: HCI LE command engine + Link-Layer state machine, transport-agnostic |
 | `vbt_controller.c` → `vbt-controller` | Host bridge: attaches the controller core to Linux `hci_vhci` (`/dev/vhci`) ↔ medium. Runnable on the host and inside VMs |
-| `src/` | QEMU `vbt-virtio` device model (integrate into a QEMU tree) |
+| `vbt_vhost_user.c` → `vbt-vhost-user` | vhost-user backend: attaches the same core to **unmodified** QEMU via `vhost-user-device-pci` — no QEMU rebuild |
+| `src/` | QEMU `virtio-bluetooth-pci` device model (integrate + build into a QEMU tree) |
 | `tests/harness.py` | Userspace regression harness for the hub |
 | `scripts/` | Lab bring-up / inspection helpers |
 
@@ -124,6 +125,10 @@ qemu-system-x86_64 -machine q35 -m 512 \
   -nographic
 ```
 
+This uses the in-tree `virtio-bluetooth-pci` device and so needs a QEMU
+built with it (see `src/`). To attach VMs **without rebuilding QEMU**, use
+the vhost-user backend instead (next section).
+
 Inside the guest, the stock `virtio_bt` driver binds and BlueZ sees an
 `hci0` controller:
 
@@ -134,6 +139,43 @@ sudo bluetoothctl
 [bluetooth]# power on
 [bluetooth]# advertise on
 ```
+
+### 2a′. Attach VMs without rebuilding QEMU (vhost-user)
+
+Stock QEMU (≥ 8.1) ships a generic `vhost-user-device-pci` that lets an
+external process implement a virtio device. `vbt-vhost-user` is that
+backend — it wraps the same controller core and bridges to the medium, so
+a guest gets a native `virtio_bt` controller with an **unmodified** QEMU:
+
+```bash
+# start the backend (it listens; QEMU connects to it)
+./vbt-vhost-user --socket /tmp/vbt-vhost.sock --medium /tmp/vbt.sock \
+                 --node-id vm-a
+
+# stock qemu-system-x86_64 — no custom device
+qemu-system-x86_64 -machine q35 -m 512 \
+  -drive file=vm.qcow2,format=qcow2 \
+  -chardev socket,id=vbt,path=/tmp/vbt-vhost.sock \
+  -device vhost-user-device-pci,chardev=vbt,virtio-id=40,num_vqs=2 \
+  -object memory-backend-memfd,id=mem,size=512M,share=on -numa node,memdev=mem \
+  -nographic
+```
+
+vhost-user requires the guest's RAM to be a shared memory backend (the
+`memory-backend-memfd` + `share=on` above) so the backend can map the
+virtqueues. Build the backend against QEMU's `libvhost-user`:
+
+```bash
+make vbt-vhost-user \
+  LIBVHOST_USER=/path/to/qemu/subprojects/libvhost-user \
+  LIBVHOST_USER_LIB=/path/to/qemu/build/subprojects/libvhost-user/libvhost-user.a
+```
+
+This needs `libvhost-user` (shipped in the QEMU source tree, far lighter
+than rebuilding QEMU) but **no** changes to the QEMU binary itself. The
+generic `vhost-user-device` is a development device; the controller core
+it wraps is unit-tested, and this transport is verified by attaching a
+guest.
 
 ### 2b. Attach the host (vhci controller)
 

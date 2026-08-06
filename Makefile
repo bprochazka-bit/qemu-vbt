@@ -31,6 +31,21 @@ vbt-controller: vbt_controller.c vbt_ll.c vbt_ll.h vbt.h
 test-ll: tests/test_ll.c vbt_ll.c vbt_ll.h vbt.h
 	$(CC) $(CFLAGS) -o $@ tests/test_ll.c vbt_ll.c
 
+# vhost-user backend — attaches to UNMODIFIED QEMU via vhost-user-device-pci.
+# Opt-in: needs QEMU's libvhost-user (not a distro package). Point
+# LIBVHOST_USER at its include dir and LIBVHOST_USER_LIB at the built
+# archive from your QEMU build, e.g.:
+#   make vbt-vhost-user \
+#     LIBVHOST_USER=/path/to/qemu/subprojects/libvhost-user \
+#     LIBVHOST_USER_LIB=/path/to/qemu/build/subprojects/libvhost-user/libvhost-user.a
+LIBVHOST_USER ?=
+LIBVHOST_USER_LIB ?=
+vbt-vhost-user: vbt_vhost_user.c vbt_ll.c vbt_ll.h vbt.h
+	@test -n "$(LIBVHOST_USER)" || { \
+	  echo "set LIBVHOST_USER=<qemu>/subprojects/libvhost-user (and LIBVHOST_USER_LIB)"; \
+	  exit 1; }
+	$(CC) $(CFLAGS) -I$(LIBVHOST_USER) -o $@ vbt_vhost_user.c vbt_ll.c $(LIBVHOST_USER_LIB)
+
 # Install destination (DESTDIR for staged/packaged installs).
 PREFIX  ?= /usr/local
 BINDIR  ?= $(PREFIX)/bin
