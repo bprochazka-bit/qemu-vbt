@@ -117,6 +117,7 @@ struct peer {
     bool        want_write;
     bool        is_bridge;       /* TCP inter-hub trunk */
     bool        is_physical;     /* hello flagged physical radio */
+    bool        is_monitor;      /* promiscuous tap: gets a copy of every PDU */
     char        label[80];
     int         node_idx;        /* index into nodes[], or -1 */
     uint64_t    frames_seen;
@@ -644,6 +645,12 @@ static void forward_frame(int src_peer, struct vbt_frame_hdr *hdr,
         node_add_addr(tx, hdr->tx_addr);
     }
 
+    /* Promiscuous taps hear every PDU — advertising and connection data
+     * alike — before any routing/propagation, with the sender's RSSI. */
+    for (int i = 0; i < num_peers; i++)
+        if (i != src_peer && peers[i].fd >= 0 && peers[i].is_monitor)
+            deliver_to_peer(i, hdr, pdu, pdu_len, hdr->rssi);
+
     if (hdr->ll_type == VBT_LL_ADV) {
         /* Learn addresses and snoop CONNECT_IND. */
         if (pdu_len >= 2 && (pdu[0] & VBT_ADV_PDU_TYPE_MASK) == VBT_CONNECT_IND)
@@ -729,12 +736,24 @@ static uint32_t maybe_hello(int pidx, const uint8_t *payload, uint32_t len)
     while (i < len && payload[i] != '\0' && j < NODE_ID_LEN - 1)
         nid[j++] = (char)payload[i++];
     nid[j] = '\0';
-    bool physical = false;
+    uint8_t flags = 0;
     if (i < len && payload[i] == '\0') i++;
-    if (i < len) physical = (payload[i] & VBT_HELLO_FLAG_PHYSICAL) != 0;
+    if (i < len) flags = payload[i];
+    bool physical = (flags & VBT_HELLO_FLAG_PHYSICAL) != 0;
+    bool monitor = (flags & VBT_HELLO_FLAG_MONITOR) != 0;
 
     if (nid[0] == '\0')
         snprintf(nid, sizeof(nid), "node%d", next_auto_id++);
+
+    if (monitor) {
+        /* A tap is not a routing node — no node binding, no fan-out slot. */
+        peers[pidx].is_monitor = true;
+        snprintf(peers[pidx].label, sizeof(peers[pidx].label), "%s", nid);
+        fprintf(stderr, "hub: peer %d monitor '%s' (promiscuous tap)\n",
+                pidx, nid);
+        return len;
+    }
+
     bind_peer_node(pidx, nid, physical);
     fprintf(stderr, "hub: peer %d hello node_id='%s'\n", pidx, nid);
     return len;   /* consumed whole payload */
@@ -1037,13 +1056,16 @@ static void ctl_dispatch(int cidx, const char *cmd)
     }
 
     if (strncasecmp(cmd, "STATS", 5) == 0) {
-        int online = 0, aconns = 0;
+        int online = 0, aconns = 0, monitors = 0;
         for (int i = 0; i < num_nodes; i++) if (nodes[i].active) online++;
         for (int i = 0; i < num_conns; i++) if (conns[i].active) aconns++;
+        for (int i = 0; i < num_peers; i++)
+            if (peers[i].fd >= 0 && peers[i].is_monitor) monitors++;
         ctl_out(cidx,
-            "OK uptime=%llds nodes=%d conns=%d adv_fwd=%llu data_fwd=%llu "
-            "drop_model=%llu drop_bp=%llu conns_opened=%llu conns_closed=%llu\n",
-            (long long)(time(NULL) - stat_start_time), online, aconns,
+            "OK uptime=%llds nodes=%d conns=%d monitors=%d adv_fwd=%llu "
+            "data_fwd=%llu drop_model=%llu drop_bp=%llu conns_opened=%llu "
+            "conns_closed=%llu\n",
+            (long long)(time(NULL) - stat_start_time), online, aconns, monitors,
             (unsigned long long)stat_adv_forwarded,
             (unsigned long long)stat_data_forwarded,
             (unsigned long long)stat_dropped_model,

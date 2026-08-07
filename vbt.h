@@ -148,6 +148,13 @@ typedef __s8 int8_t;
  * ================================================================ */
 #define VBT_HELLO_MAGIC          0x48544256  /* "VBTH" */
 #define VBT_HELLO_FLAG_PHYSICAL  0x01
+/* VBT_HELLO_FLAG_MONITOR marks a promiscuous tap (e.g. medium_dump.py): the
+ * hub delivers a copy of every PDU it forwards — advertising *and*
+ * point-to-point connection data — to the monitor, which is otherwise not
+ * a routing participant (it is never a fan-out target and its own-frame
+ * filtering does not apply). This is the virtual equivalent of a BLE
+ * sniffer that hears the whole air. */
+#define VBT_HELLO_FLAG_MONITOR   0x02
 
 /* ================================================================
  *  Frame header — prepended to every BLE PDU on the wire (44 bytes)

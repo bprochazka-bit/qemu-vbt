@@ -31,6 +31,8 @@ speak the wire protocol directly, covering routing and propagation:
   sender)
 * `CONNECT_IND` snooping builds a per-Access-Address connection, after
   which data PDUs route point-to-point (a third node sees nothing)
+* a **promiscuous monitor** (`scripts/medium_dump.py`'s mode) does see that
+  point-to-point connection data, and `STATS` reports it
 * per-link `SET_LOSS` / `SET_RSSI` overrides and position-based path loss
   drop PDUs as expected
 * the control socket reports peers, connections, and stats

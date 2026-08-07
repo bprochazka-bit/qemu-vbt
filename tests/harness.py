@@ -40,6 +40,8 @@ VBT_HELLO_MAGIC = 0x48544256    # "VBTH"
 VBT_ADV_AA = 0x8E89BED6
 HELLO_FLAG_PHYSICAL = 0x01
 
+HELLO_FLAG_MONITOR = 0x02
+
 LL_ADV = 0x01
 LL_DATA = 0x02
 
@@ -53,10 +55,16 @@ HDR_SIZE = struct.calcsize(HDR_FMT)
 assert HDR_SIZE == 44, HDR_SIZE
 
 
-def make_hello(node_id: str, physical: bool = False) -> bytes:
+def make_hello(node_id: str, physical: bool = False,
+               monitor: bool = False) -> bytes:
     payload = struct.pack('<I', VBT_HELLO_MAGIC) + node_id.encode() + b'\x00'
+    flags = 0
     if physical:
-        payload += bytes([HELLO_FLAG_PHYSICAL])
+        flags |= HELLO_FLAG_PHYSICAL
+    if monitor:
+        flags |= HELLO_FLAG_MONITOR
+    if flags:
+        payload += bytes([flags])
     return struct.pack('!I', len(payload)) + payload
 
 
@@ -107,12 +115,12 @@ def parse_msgs(buf: bytes):
 
 class Node:
     """A mock BLE controller speaking the wire protocol directly."""
-    def __init__(self, harness, node_id, addr, physical=False):
+    def __init__(self, harness, node_id, addr, physical=False, monitor=False):
         self.node_id = node_id
         self.addr = addr
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.sock.connect(str(harness.sock))
-        self.sock.sendall(make_hello(node_id, physical))
+        self.sock.sendall(make_hello(node_id, physical, monitor))
         self.rx = b''
         time.sleep(0.02)
 
@@ -267,6 +275,21 @@ def run():
 
         out = h.ctl_cmd('LIST_CONNS')
         h.check(f'0x{AA:08x}' in out, 'LIST_CONNS reports the connection')
+
+        # --- Promiscuous monitor sees connection data (medium_dump path) ---
+        print('[2b] promiscuous monitor tap')
+        mon = Node(h, 'dump', b'\x99\x99\x99\x99\x99\x99', monitor=True)
+        mon.recv_msgs()   # drain
+        na.send(make_frame(A, b'\xCC' * 16, ll_type=LL_DATA,
+                           access_addr=AA, channel=9))
+        na.send(make_frame(A, adv_ind_pdu(A)))
+        mm = mon.recv_msgs()
+        h.check(count_data(mm, AA) >= 1,
+                'monitor sees point-to-point connection data')
+        h.check(has_adv_from(mm, A), 'monitor also sees advertising')
+        out = h.ctl_cmd('STATS')
+        h.check('monitors=1' in out, 'STATS reports the monitor')
+        mon.close()
 
         # --- Propagation: per-link loss=1.0 blocks discovery ---
         print('[3] propagation model')

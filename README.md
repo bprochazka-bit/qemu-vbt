@@ -226,6 +226,36 @@ echo LIST_PEERS | socat - UNIX-CONNECT:/tmp/vbt.ctl
 | `SAVE_CONFIG <path>` | Snapshot positions/overrides to a file |
 | `HELP` | Full command list |
 
+## Tapping the medium (troubleshooting)
+
+`scripts/medium_dump.py` is a virtual BLE sniffer — the first thing to
+reach for when discovery, a connection, or pairing misbehaves. It attaches
+to the hub as a **promiscuous monitor** (a hello flag the hub honours by
+copying it *every* PDU it forwards — advertising **and** point-to-point
+connection data), then decodes each Link-Layer PDU:
+
+```bash
+python3 scripts/medium_dump.py /tmp/vbt.sock            # live decode
+python3 scripts/medium_dump.py /tmp/vbt.sock -v         # + hex dump
+python3 scripts/medium_dump.py /tmp/vbt.sock --filter data
+python3 scripts/medium_dump.py /tmp/vbt.sock -w cap.pcap   # Wireshark
+```
+
+Sample output:
+
+```
+[12:00:01] #1  ADV  ch=37(2402MHz) 1M aa=adv        tx=66:55:44:33:22:11 rssi=-40dBm  ADV_IND AdvA=66:55:44:33:22:11 Flags=0x06 Name='Sensor'
+[12:00:01] #2  ADV  ch=37(2402MHz) 1M aa=adv        tx=ff:ee:dd:cc:bb:aa rssi=-40dBm  CONNECT_IND InitA=ff:ee:.. AdvA=66:55:.. AA=0xdeadbeef interval=30.0ms
+[12:00:01] #3  DATA ch=9 (2422MHz) 1M aa=0xdeadbeef  tx=66:55:44:33:22:11 rssi=-40dBm  ATT ExchangeMTUReq
+```
+
+It decodes advertising PDU types + AD structures (flags, name, UUIDs, TX
+power), `CONNECT_IND` parameters, LL control PDUs (encryption, terminate,
+feature/version exchange), and L2CAP → ATT/GATT and SMP opcodes — so you
+can watch a pairing or GATT exchange PDU by PDU. `-w` writes a
+`LINKTYPE_BLUETOOTH_LE_LL` pcap that Wireshark dissects natively. The tap
+never participates in routing, so it perturbs nothing on the medium.
+
 ## How the medium routes
 
 * **Advertising PDUs** (`ll_type == VBT_LL_ADV`, Access Address
