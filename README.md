@@ -185,6 +185,27 @@ generic `vhost-user-device` is a development device; the controller core
 it wraps is unit-tested, and this transport is verified by attaching a
 guest.
 
+### 2c. A simulated peer device (no second stack)
+
+To test discovery/GATT from a single node without standing up a second VM
+or a vhci controller, run the standalone simulated peripheral. It attaches
+to the medium and behaves like a connectable BLE device — advertising a
+name + service UUID, answering scans, accepting a connection, and serving
+a small GATT database (device name + a battery-level characteristic):
+
+```bash
+python3 scripts/sim_peripheral.py /tmp/vbt.sock --name Sensor --uuid 180f -v
+```
+
+Your guest can then `scan on` → discover **Sensor** → `connect` → browse
+and read its characteristics. It handles the Link-Layer control and ATT
+(read/discovery) exchanges, so `scan`, `connect`, and GATT reads work.
+
+It does **not** implement SMP, so it can't complete bonded/encrypted
+pairing — a pairing attempt is declined cleanly (`SMP Pairing Not
+Supported`) rather than hanging. For real pairing, put a real BlueZ stack
+on the medium with the vhci controller below.
+
 ### 2b. Attach the host (vhci controller)
 
 The host can join the same medium as a real BlueZ controller, no QEMU
