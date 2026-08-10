@@ -2,15 +2,22 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 #
-# Targets:
+# Userspace targets (no QEMU or kernel needed):
 #   make            — build userspace binaries (vbt-medium, vbt-controller)
 #   make userspace  — same as `make`
-#   make test       — run tests/harness.py against ./vbt-medium
+#   make test       — run test-ll + tests/harness.py
 #   make install    — install userspace binaries (honors PREFIX, DESTDIR)
-#   make clean      — remove build artifacts
+#   make clean      — remove userspace build artifacts
 #
-# The QEMU device model in src/ is built as part of a QEMU source tree;
-# see src/README.md and scripts/integrate.sh. It is NOT built here.
+# QEMU device targets (build QEMU with the virtio-bluetooth device;
+# require QEMU_SRC=/path/to/qemu):
+#   make qemu          — integrate + configure + build QEMU with the device
+#   make qemu-upgrade  — re-integrate + rebuild + reinstall (quick iterate)
+#   make qemu-test     — confirm the device is present in the built QEMU
+#   make qemu-clean    — clean the QEMU build dir
+#   (granular: qemu-integrate, qemu-configure, qemu-build, qemu-install)
+#
+# See `make help`, src/README.md, and scripts/integrate.sh.
 
 CC      ?= gcc
 CFLAGS  ?= -Wall -Wextra -O2
@@ -65,4 +72,118 @@ test: vbt-medium test-ll
 clean:
 	rm -f $(USERSPACE_BINS) test-ll
 
-.PHONY: all userspace install uninstall test test-ll clean
+# ==================================================================
+#  QEMU device build orchestration
+#
+#  These targets drive QEMU's own Meson build to produce a
+#  qemu-system-* with the virtio-bluetooth device. They require a QEMU
+#  source tree (a git clone of qemu/qemu):
+#
+#    make qemu          QEMU_SRC=/path/to/qemu     # first-time build
+#    make qemu-upgrade  QEMU_SRC=/path/to/qemu     # rebuild + reinstall
+#
+#  The device sources are copied in from src/ + the repo root by
+#  scripts/integrate.sh; only src/vbt_virtio.c and the shared vbt_ll
+#  core are compiled into QEMU.
+# ==================================================================
+QEMU_SRC             ?=
+QEMU_TARGETS         ?= x86_64-softmmu
+QEMU_PREFIX          ?= /usr/local
+QEMU_CONFIGURE_FLAGS ?= --enable-debug
+QEMU_BUILD_DIR        = $(QEMU_SRC)/build
+QEMU_BINARY           = $(QEMU_BUILD_DIR)/qemu-system-x86_64
+QEMU_INSTALLED        = $(QEMU_PREFIX)/bin/qemu-system-x86_64
+NPROC                := $(shell nproc 2>/dev/null || echo 4)
+
+check-qemu-src:
+ifndef QEMU_SRC
+	$(error QEMU_SRC is not set. Usage: make qemu QEMU_SRC=/path/to/qemu)
+endif
+	@test -f "$(QEMU_SRC)/meson.build" || \
+		{ echo "ERROR: $(QEMU_SRC)/meson.build not found — not a QEMU source tree"; exit 1; }
+
+# First-time build: integrate the device, configure, and build. Ordered via
+# recursive make so it is correct even under a parallel top-level invocation.
+qemu: check-qemu-src
+	@$(MAKE) --no-print-directory qemu-integrate QEMU_SRC="$(QEMU_SRC)"
+	@$(MAKE) --no-print-directory qemu-configure QEMU_SRC="$(QEMU_SRC)"
+	@$(MAKE) --no-print-directory qemu-build     QEMU_SRC="$(QEMU_SRC)"
+	@echo ""
+	@echo "=== Built $(QEMU_BINARY) ==="
+	@echo "  quick check:  make qemu-test QEMU_SRC=$(QEMU_SRC)"
+	@echo "  run:          $(QEMU_BINARY) -M q35 -m 512 \\"
+	@echo "                  -device virtio-bluetooth-pci,medium=/tmp/vbt.sock,node_id=vm-a ..."
+	@echo "  install:      make qemu-upgrade QEMU_SRC=$(QEMU_SRC)"
+
+qemu-integrate: check-qemu-src
+	@echo "=== Integrating virtio-bluetooth device into QEMU ==="
+	./scripts/integrate.sh "$(QEMU_SRC)"
+
+qemu-configure: check-qemu-src
+	@echo "=== Configuring QEMU ($(QEMU_TARGETS)) ==="
+	@mkdir -p "$(QEMU_BUILD_DIR)"
+	cd "$(QEMU_BUILD_DIR)" && "$(QEMU_SRC)/configure" \
+		--target-list=$(QEMU_TARGETS) \
+		--prefix="$(QEMU_PREFIX)" \
+		$(QEMU_CONFIGURE_FLAGS)
+
+qemu-build: check-qemu-src
+	@test -d "$(QEMU_BUILD_DIR)" || \
+		{ echo "ERROR: no build dir — run 'make qemu-configure QEMU_SRC=$(QEMU_SRC)' first"; exit 1; }
+	@echo "=== Building QEMU (-j$(NPROC)) ==="
+	$(MAKE) -C "$(QEMU_BUILD_DIR)" -j$(NPROC)
+
+# Quick iterate after editing src/vbt_virtio.c (or pulling a newer QEMU):
+# re-copy the device sources, rebuild, and reinstall over any existing binary.
+qemu-upgrade: check-qemu-src
+	@$(MAKE) --no-print-directory qemu-integrate QEMU_SRC="$(QEMU_SRC)"
+	@$(MAKE) --no-print-directory qemu-build     QEMU_SRC="$(QEMU_SRC)"
+	@echo "=== Reinstalling QEMU into $(QEMU_PREFIX) (overwriting) ==="
+	$(MAKE) -C "$(QEMU_BUILD_DIR)" install
+	@echo "   installed $(QEMU_INSTALLED)"
+
+qemu-install: check-qemu-src
+	@test -x "$(QEMU_BINARY)" || \
+		{ echo "ERROR: $(QEMU_BINARY) not found — run 'make qemu' first"; exit 1; }
+	@if [ -x "$(QEMU_INSTALLED)" ]; then \
+		echo "   $(QEMU_INSTALLED) already exists — use 'make qemu-upgrade' to overwrite"; \
+	else \
+		$(MAKE) -C "$(QEMU_BUILD_DIR)" install; \
+		echo "   installed $(QEMU_INSTALLED)"; \
+	fi
+
+# Guestless smoke test: confirm the device linked into the build.
+qemu-test: check-qemu-src
+	@test -x "$(QEMU_BINARY)" || \
+		{ echo "ERROR: $(QEMU_BINARY) not found — run 'make qemu' first"; exit 1; }
+	@echo "=== Checking virtio-bluetooth-pci is registered ==="
+	@"$(QEMU_BINARY)" -device help 2>&1 | grep -i "virtio-bluetooth" \
+		&& echo "OK: device present in $(QEMU_BINARY)" \
+		|| { echo "FAIL: virtio-bluetooth not found in this build"; exit 1; }
+
+qemu-clean: check-qemu-src
+	@test -d "$(QEMU_BUILD_DIR)" && \
+		$(MAKE) -C "$(QEMU_BUILD_DIR)" clean || true
+
+help:
+	@echo "qemu-vbt — build targets"
+	@echo ""
+	@echo "Userspace (no QEMU/kernel needed):"
+	@echo "  make                 vbt-medium, vbt-controller"
+	@echo "  make test            test-ll + tests/harness.py"
+	@echo "  make vbt-vhost-user  vhost-user backend (needs LIBVHOST_USER=...)"
+	@echo "  make install         install userspace binaries"
+	@echo "  make clean           remove userspace artifacts"
+	@echo ""
+	@echo "QEMU device (need QEMU_SRC=/path/to/qemu):"
+	@echo "  make qemu            integrate + configure + build QEMU w/ the device"
+	@echo "  make qemu-upgrade    re-integrate + rebuild + reinstall (quick iterate)"
+	@echo "  make qemu-test       confirm the device is present in the build"
+	@echo "  make qemu-clean      clean the QEMU build dir"
+	@echo ""
+	@echo "Variables: QEMU_SRC, QEMU_TARGETS (=$(QEMU_TARGETS)),"
+	@echo "  QEMU_PREFIX (=$(QEMU_PREFIX)), QEMU_CONFIGURE_FLAGS (=$(QEMU_CONFIGURE_FLAGS))"
+
+.PHONY: all userspace install uninstall test test-ll clean help \
+        check-qemu-src qemu qemu-integrate qemu-configure qemu-build \
+        qemu-upgrade qemu-install qemu-test qemu-clean

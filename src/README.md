@@ -45,16 +45,24 @@ a thin copy in each direction.
 
 ## Build
 
+From the repo root, point the Makefile at a QEMU source tree:
+
+```bash
+make qemu          QEMU_SRC=/path/to/qemu   # integrate + configure + build
+make qemu-test     QEMU_SRC=/path/to/qemu   # confirm the device is present
+make qemu-upgrade  QEMU_SRC=/path/to/qemu   # rebuild + reinstall after edits
+```
+
+`make qemu` runs `scripts/integrate.sh` (which creates `hw/bluetooth/`,
+copies the sources, and wires `subdir('bluetooth')` into `hw/meson.build`
+and `source bluetooth/Kconfig` into `hw/Kconfig` — idempotently), then
+configures and builds. Equivalent by hand:
+
 ```bash
 ./scripts/integrate.sh /path/to/qemu
 cd /path/to/qemu && mkdir -p build && cd build
-../configure --target-list=x86_64-softmmu
-make -j$(nproc)
+../configure --target-list=x86_64-softmmu && make -j$(nproc)
 ```
-
-`integrate.sh` creates `hw/bluetooth/`, copies the sources, and wires
-`subdir('bluetooth')` into `hw/meson.build` and `source bluetooth/Kconfig`
-into `hw/Kconfig`. It is idempotent.
 
 ## Run
 

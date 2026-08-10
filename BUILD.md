@@ -23,13 +23,24 @@ standalone in CI.
 
 ## QEMU device (`virtio-bluetooth-pci`)
 
-Built as part of a QEMU source tree:
+Built as part of a QEMU source tree. The Makefile orchestrates QEMU's own
+Meson build — point it at a QEMU checkout:
+
+```sh
+make qemu          QEMU_SRC=/path/to/qemu   # integrate + configure + build
+make qemu-test     QEMU_SRC=/path/to/qemu   # is the device in the build?
+make qemu-upgrade  QEMU_SRC=/path/to/qemu   # rebuild + reinstall after edits
+make qemu-clean    QEMU_SRC=/path/to/qemu
+```
+
+Granular steps (`qemu-integrate`, `qemu-configure`, `qemu-build`,
+`qemu-install`) and tunables (`QEMU_TARGETS`, `QEMU_PREFIX`,
+`QEMU_CONFIGURE_FLAGS`) are in `make help`. Equivalent manual flow:
 
 ```sh
 ./scripts/integrate.sh /path/to/qemu
 cd /path/to/qemu && mkdir -p build && cd build
-../configure --target-list=x86_64-softmmu
-make -j$(nproc)
+../configure --target-list=x86_64-softmmu && make -j$(nproc)
 ```
 
 See [`src/README.md`](src/README.md).

@@ -78,17 +78,22 @@ make && sudo scripts/lab-demo.sh 2
 
 ### QEMU device model
 
-The `vbt-virtio` device is compiled as part of a QEMU source tree:
+The `virtio-bluetooth-pci` device is compiled as part of a QEMU source
+tree. The Makefile drives QEMU's own build for you — point it at a QEMU
+checkout (a `git clone` of `qemu/qemu`):
 
 ```bash
-./scripts/integrate.sh /path/to/qemu
-cd /path/to/qemu && mkdir -p build && cd build
-../configure --target-list=x86_64-softmmu
-make -j$(nproc)
+make qemu QEMU_SRC=/path/to/qemu          # integrate + configure + build
+make qemu-test QEMU_SRC=/path/to/qemu     # confirm the device is present
+make qemu-upgrade QEMU_SRC=/path/to/qemu  # rebuild + reinstall after edits
 ```
 
-See [`src/README.md`](src/README.md) for details and current verification
-status.
+`make qemu` runs `integrate.sh` (copies the device + shared core into
+`hw/bluetooth/` and wires up Meson/Kconfig), configures, and builds.
+`make qemu-upgrade` is the quick iterate loop after you edit
+`src/vbt_virtio.c` (or pull a newer QEMU): re-integrate, rebuild, reinstall
+over the existing binary. `make help` lists every target. See
+[`src/README.md`](src/README.md) for details and verification status.
 
 ## Usage
 
