@@ -677,12 +677,45 @@ static void dispatch_command(struct vbt_ll *ll, const uint8_t *pkt, size_t len)
         break;
     }
     case OP_READ_LOCAL_COMMANDS: {
-        /* Permissive: claim support for the commands we implement (and
-         * some we no-op). A genuinely-unhandled command still returns
-         * Unknown Command below, which BlueZ tolerates. */
+        /*
+         * Advertise ONLY the commands this core actually answers. Claiming
+         * everything (all 0xFF) makes the kernel probe commands we don't
+         * implement during init — notably the BR/EDR Read Stored Link Key
+         * (0x0c0d), whose short "unknown command" reply the kernel rejects
+         * ("unexpected cc 0x0c0d length: 1 < 5"), aborting controller
+         * setup so the adapter never reaches bluetoothd.
+         *
+         * Bit positions are (octet, bit) from the Core spec "Supported
+         * Commands" table; c[octet] |= 1<<bit. The foundational reads
+         * (Read Local Version/Features/Buffer Size/BD_ADDR) are sent by
+         * the kernel unconditionally and answered above, so they need no
+         * bit here. Everything left 0 is a command the kernel then never
+         * sends — the safe direction.
+         */
         uint8_t r[65];
+        memset(r, 0, sizeof(r));
         r[0] = HCI_SUCCESS;
-        memset(r + 1, 0xff, 64);
+        uint8_t *c = r + 1;                       /* c[octet], octets 0..63 */
+        c[0]  |= 1u << 5;                          /* Disconnect */
+        c[2]  |= 1u << 7;                          /* Read Remote Version Info */
+        c[5]  |= (1u << 6) | (1u << 7);            /* Set Event Mask; Reset */
+        c[22] |= 1u << 2;                          /* Set Event Mask Page 2 */
+        /* LE (4.0) commands — all handled by this core: */
+        c[25] |= (1u<<0)|(1u<<1)|(1u<<2)|(1u<<4)|(1u<<5)|(1u<<6)|(1u<<7);
+                 /* LE Set Event Mask; Read Buffer Size; Read Local Supported
+                  * Features; Set Random Address; Set Adv Params; Read Adv
+                  * Channel TX Power; Set Adv Data */
+        c[26] |= 0xff;
+                 /* LE Set Scan Rsp Data; Set Adv Enable; Set Scan Params;
+                  * Set Scan Enable; Create Connection; Create Connection
+                  * Cancel; Read White List Size; Clear White List */
+        c[27] |= (1u<<0)|(1u<<1)|(1u<<2)|(1u<<3)|(1u<<5)|(1u<<6)|(1u<<7);
+                 /* LE Add/Remove Device To White List; Connection Update;
+                  * Set Host Channel Classification; Read Remote Features;
+                  * Encrypt; Rand (not Read Channel Map) */
+        c[28] |= (1u<<0)|(1u<<1)|(1u<<2)|(1u<<3);
+                 /* LE Start Encryption; LTK Request Reply; LTK Request
+                  * Negative Reply; Read Supported States */
         cmd_complete(ll, opcode, r, sizeof(r));
         break;
     }
