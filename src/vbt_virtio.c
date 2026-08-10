@@ -32,7 +32,6 @@
 #include "qemu/iov.h"
 #include "hw/virtio/virtio.h"
 #include "hw/virtio/virtio-pci.h"
-#include "hw/qdev-properties.h"
 #include "migration/vmstate.h"
 #include "qom/object.h"
 
@@ -453,19 +452,17 @@ static const VMStateDescription vmstate_virtio_bt = {
     },
 };
 
-static const Property virtio_bt_properties[] = {
-    DEFINE_PROP_STRING("medium", VirtIOBT, medium_path),
-    DEFINE_PROP_STRING("node_id", VirtIOBT, node_id),
-    DEFINE_PROP_STRING("bdaddr", VirtIOBT, bdaddr_str),
-};
-
 static void virtio_bt_class_init(ObjectClass *klass, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     VirtioDeviceClass *vdc = VIRTIO_DEVICE_CLASS(klass);
     (void)data;
 
-    device_class_set_props(dc, virtio_bt_properties);
+    /* The user-facing string properties (medium/node_id/bdaddr) are added
+     * on the virtio-bluetooth-pci proxy in its instance_init via
+     * object_property_add_str(), so this device needs no qdev-property
+     * table — and thus no hw/qdev-properties.h, which some QEMU trees do
+     * not expose to out-of-tree device objects. */
     set_bit(DEVICE_CATEGORY_NETWORK, dc->categories);
     dc->vmsd = &vmstate_virtio_bt;
 
@@ -518,11 +515,63 @@ static void virtio_bt_pci_class_init(ObjectClass *klass, const void *data)
     dc->desc = "Virtual BLE controller (virtio-bluetooth)";
 }
 
+/*
+ * String properties are registered directly on the proxy object the user
+ * instantiates (-device virtio-bluetooth-pci,medium=...,node_id=...), so
+ * no qdev-property aliasing (and no hw/qdev-properties.h) is needed. Each
+ * setter stores into the embedded VirtIOBT, which realize then reads.
+ */
+static char *virtio_bt_pci_get_medium(Object *obj, Error **errp)
+{
+    (void)errp;
+    VirtIOBTPCI *d = VIRTIO_BT_PCI(obj);
+    return g_strdup(d->vdev.medium_path ? d->vdev.medium_path : "");
+}
+static void virtio_bt_pci_set_medium(Object *obj, const char *v, Error **errp)
+{
+    (void)errp;
+    VirtIOBTPCI *d = VIRTIO_BT_PCI(obj);
+    g_free(d->vdev.medium_path);
+    d->vdev.medium_path = g_strdup(v);
+}
+static char *virtio_bt_pci_get_node_id(Object *obj, Error **errp)
+{
+    (void)errp;
+    VirtIOBTPCI *d = VIRTIO_BT_PCI(obj);
+    return g_strdup(d->vdev.node_id ? d->vdev.node_id : "");
+}
+static void virtio_bt_pci_set_node_id(Object *obj, const char *v, Error **errp)
+{
+    (void)errp;
+    VirtIOBTPCI *d = VIRTIO_BT_PCI(obj);
+    g_free(d->vdev.node_id);
+    d->vdev.node_id = g_strdup(v);
+}
+static char *virtio_bt_pci_get_bdaddr(Object *obj, Error **errp)
+{
+    (void)errp;
+    VirtIOBTPCI *d = VIRTIO_BT_PCI(obj);
+    return g_strdup(d->vdev.bdaddr_str ? d->vdev.bdaddr_str : "");
+}
+static void virtio_bt_pci_set_bdaddr(Object *obj, const char *v, Error **errp)
+{
+    (void)errp;
+    VirtIOBTPCI *d = VIRTIO_BT_PCI(obj);
+    g_free(d->vdev.bdaddr_str);
+    d->vdev.bdaddr_str = g_strdup(v);
+}
+
 static void virtio_bt_pci_instance_init(Object *obj)
 {
     VirtIOBTPCI *dev = VIRTIO_BT_PCI(obj);
     virtio_instance_init_common(obj, &dev->vdev, sizeof(dev->vdev),
                                 TYPE_VIRTIO_BT);
+    object_property_add_str(obj, "medium",
+                            virtio_bt_pci_get_medium, virtio_bt_pci_set_medium);
+    object_property_add_str(obj, "node_id",
+                            virtio_bt_pci_get_node_id, virtio_bt_pci_set_node_id);
+    object_property_add_str(obj, "bdaddr",
+                            virtio_bt_pci_get_bdaddr, virtio_bt_pci_set_bdaddr);
 }
 
 static const VirtioPCIDeviceTypeInfo virtio_bt_pci_info = {
