@@ -60,6 +60,55 @@ dmesg | grep -i -e virtio_bt -e bluetooth | tail
 `bluetoothctl` should now see the adapter, and you can `scan on` / `pair` /
 `connect` peers on the medium exactly as with a real controller.
 
+## Build on one box, install on another
+
+If you stage on a build host and deploy to a different (often minimal or
+air-gapped) target, use `--pack` to produce a portable artifact instead of
+installing locally. Pick the format by what the **target** has:
+
+| Target has… | Use | Build host needs |
+|---|---|---|
+| toolchain + kernel headers | `--pack tarball` (or `deb`/`rpm`) | just the driver source |
+| **no** toolchain | `--pack ko` (or `bin`) | the **target kernel's** headers |
+
+Source packages rebuild on the target (and keep rebuilding across its
+kernel upgrades via DKMS); prebuilt packages are locked to one exact
+kernel version.
+
+```bash
+# --- on the build box ---
+# Source package — target compiles it (portable across the target's kernels):
+sudo ./stage.sh --kernel-src /usr/src/linux --pack tarball --out ./out
+sudo ./stage.sh --kernel-src /usr/src/linux --pack deb     --out ./out   # or rpm
+
+# Prebuilt module for a target with no compiler — must match its exact
+# kernel, so install THAT kernel's headers here first:
+sudo ./stage.sh --source ./virtio_bt.c --pack ko \
+     --kver 6.1.0-18-amd64 --out ./out
+```
+
+`--pack` never touches the build box's running kernel; it just drops the
+artifact in `--out` and prints the exact install commands. On the target:
+
+```bash
+# source tarball:
+sudo dkms ldtarball virtio-bt-1.0.dkms.tar.gz
+sudo dkms install virtio-bt/1.0            # builds against the target's headers
+sudo modprobe virtio_bt
+
+# .deb / .rpm (DKMS rebuilds on install):
+sudo apt install ./virtio-bt-dkms_1.0_all.deb     # or: dnf install ./...rpm
+sudo modprobe virtio_bt
+
+# prebuilt .ko (target kernel must equal --kver):
+sudo install -D virtio_bt-<kver>.ko /lib/modules/<kver>/updates/virtio_bt.ko
+sudo depmod -a <kver> && sudo modprobe virtio_bt
+```
+
+Prerequisites still apply on whichever box does the compiling: `dkms`,
+kernel headers, and the Bluetooth core (`CONFIG_BT`). `--pack deb`/`rpm`
+additionally need `dpkg-dev` / `rpmbuild` on the build box.
+
 ## Kernel upgrades
 
 The package is registered `AUTOINSTALL=yes`, so DKMS rebuilds it on kernel
