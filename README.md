@@ -135,7 +135,10 @@ built with it (see `src/`). To attach VMs **without rebuilding QEMU**, use
 the vhost-user backend instead (next section).
 
 Inside the guest, the stock `virtio_bt` driver binds and BlueZ sees an
-`hci0` controller:
+`hci0` controller. If the guest kernel was built without
+`CONFIG_BT_VIRTIO` (the device appears in `lspci` but `modinfo virtio_bt`
+is empty and no `hci0` shows up), build the driver out-of-tree with the
+DKMS package in [`dkms/`](dkms/) — no full kernel rebuild needed.
 
 ```bash
 # advertise a GATT service (peripheral)
