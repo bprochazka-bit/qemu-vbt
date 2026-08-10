@@ -351,11 +351,17 @@ static void virtio_bt_set_config(VirtIODevice *vdev, const uint8_t *config)
 static void virtio_bt_reset(VirtIODevice *vdev)
 {
     VirtIOBT *s = VIRTIO_BT(vdev);
+    /*
+     * Drop any queued events on a virtio device reset, but do NOT
+     * synthesize HCI traffic here. The guest issues its own HCI Reset as
+     * the first command of its power-on init, which the controller core
+     * answers cleanly. Injecting a second Reset produced an unsolicited
+     * Command Complete that raced the kernel's init handshake, desynced
+     * the command-credit accounting, and left the adapter registered but
+     * stuck in setup (visible in /sys/class/bluetooth but absent from
+     * `bluetoothctl list`).
+     */
     s->pend_head = s->pend_tail = 0;
-    if (s->ll) {
-        uint8_t reset_cmd[4] = { HCI_CMD_PKT, 0x03, 0x0c, 0x00 };
-        vbt_ll_hci_from_host(s->ll, reset_cmd, sizeof(reset_cmd));
-    }
 }
 
 static void virtio_bt_parse_bdaddr(VirtIOBT *s)
