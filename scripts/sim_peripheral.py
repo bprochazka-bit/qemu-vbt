@@ -383,6 +383,8 @@ def dump_config(parser):
         'description': (parser.description or '').strip(),
         'params': params,
         'extras': {},
+        # No cross-field rules: every parameter is independent here.
+        'constraints': [],
     }, indent=2)
 
 
