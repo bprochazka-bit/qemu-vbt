@@ -22,6 +22,7 @@ Usage:
 """
 
 import argparse
+import json
 import selectors
 import socket
 import struct
@@ -322,8 +323,12 @@ def parse_addr(s):
     return bytes(int(p, 16) for p in reversed(parts))   # store LSB-first
 
 
-def main():
+def build_parser():
     ap = argparse.ArgumentParser(description="Simulated BLE peripheral on the vbt medium")
+    ap.add_argument('--dump-config', action='store_true',
+                    help='print a JSON descriptor of this device type\'s '
+                         'configurable parameters and exit (used by tools '
+                         'that build a UI or validate configs)')
     ap.add_argument('socket', help='path to the vbt-medium data socket')
     ap.add_argument('--name', default='SimPeri', help='advertised device name')
     ap.add_argument('--addr', type=parse_addr, default=parse_addr('c0:ff:ee:00:00:01'),
@@ -332,7 +337,63 @@ def main():
                     help='advertised 16-bit service UUID (hex, default 180f Battery)')
     ap.add_argument('--node-id', default='sim-peri', help='hub node identity')
     ap.add_argument('-v', '--verbose', action='store_true')
-    args = ap.parse_args()
+    return ap
+
+
+# Human-readable defaults for the two arguments whose parsed default is not
+# a plain string (an address is stored LSB-first bytes; the UUID as an int).
+# The config descriptor should show what a user would actually type.
+_DESCRIPTOR_DEFAULTS = {'addr': 'c0:ff:ee:00:00:01', 'uuid': '180f'}
+_DESCRIPTOR_TYPES = {'addr': 'str', 'uuid': 'str'}
+
+
+def _param(action):
+    """One parameter descriptor, matching the vwifi launchers' shape so a
+    consumer parses a single schema for every device type."""
+    if isinstance(action, argparse._StoreTrueAction):
+        ptype, default = 'bool', bool(action.default)
+    else:
+        ptype = _DESCRIPTOR_TYPES.get(action.dest, 'str')
+        if action.type is int:
+            ptype = 'int'
+        default = _DESCRIPTOR_DEFAULTS.get(action.dest, action.default)
+        if not isinstance(default, (str, int, float, bool, type(None))):
+            default = str(default)
+    flags = list(action.option_strings)
+    return {
+        'name': action.dest,
+        'flags': flags,
+        'positional': not flags,
+        'type': ptype,
+        'required': bool(action.required) or not flags,
+        'default': default,
+        'choices': list(action.choices) if action.choices else None,
+        'help': action.help or '',
+        'metavar': action.metavar if isinstance(action.metavar, str) else None,
+    }
+
+
+def dump_config(parser):
+    params = [_param(a) for a in parser._actions
+              if not isinstance(a, argparse._HelpAction)
+              and a.dest not in ('help', 'dump_config')]
+    return json.dumps({
+        'device_type': 'ble-peripheral',
+        'binary': 'vbt-sim-peripheral',
+        'description': (parser.description or '').strip(),
+        'params': params,
+        'extras': {},
+    }, indent=2)
+
+
+def main():
+    parser = build_parser()
+    # --dump-config short-circuits argument validation: a caller asking for
+    # the config descriptor has not supplied the socket, and shouldn't need to.
+    if '--dump-config' in sys.argv[1:]:
+        print(dump_config(parser))
+        return
+    args = parser.parse_args()
     try:
         SimPeripheral(args).run()
     except OSError as e:

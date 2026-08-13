@@ -58,16 +58,27 @@ PREFIX  ?= /usr/local
 BINDIR  ?= $(PREFIX)/bin
 INSTALL ?= install
 
+# The standalone simulated BLE peripheral (scripts/sim_peripheral.py) is a
+# stdlib-only Python script. It installs as vbt-sim-peripheral so tooling —
+# Nyxus's simulators feature launches it under a systemd unit — can invoke
+# it by a stable name on PATH, alongside the compiled userspace binaries.
+SIM_PERIPHERAL_SRC := scripts/sim_peripheral.py
+SIM_PERIPHERAL_BIN := vbt-sim-peripheral
+
 install: $(USERSPACE_BINS)
 	$(INSTALL) -d $(DESTDIR)$(BINDIR)
 	$(INSTALL) -m 0755 $(USERSPACE_BINS) $(DESTDIR)$(BINDIR)
+	$(INSTALL) -m 0755 $(SIM_PERIPHERAL_SRC) \
+		$(DESTDIR)$(BINDIR)/$(SIM_PERIPHERAL_BIN)
 
 uninstall:
 	rm -f $(addprefix $(DESTDIR)$(BINDIR)/,$(USERSPACE_BINS))
+	rm -f $(DESTDIR)$(BINDIR)/$(SIM_PERIPHERAL_BIN)
 
 test: vbt-medium test-ll
 	./test-ll
 	python3 tests/harness.py
+	python3 -m unittest -v tests.test_sim_config
 
 clean:
 	rm -f $(USERSPACE_BINS) test-ll
