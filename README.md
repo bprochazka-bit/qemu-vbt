@@ -206,6 +206,27 @@ pairing — a pairing attempt is declined cleanly (`SMP Pairing Not
 Supported`) rather than hanging. For real pairing, put a real BlueZ stack
 on the medium with the vhci controller below.
 
+### 2c′. A whole fleet of devices (catalog-driven)
+
+To populate the medium with many realistic peers at once, use the fleet
+generator, which reads a JSON catalog of BLE device profiles (25 generic
+archetypes + 25 specific devices) and launches profile-accurate
+peripherals — each its own process by default (a "pseudohost"), or all in
+one asyncio loop with `--in-process`:
+
+```bash
+python3 scripts/ble_fleet.py --list                 # browse the catalog
+python3 scripts/ble_fleet.py --scenario beacons     # iBeacon/Eddystone/RuuviTag/…
+python3 scripts/ble_fleet.py --generic --count 12   # a random dozen
+python3 scripts/ble_fleet.py --all --in-process     # everything, one process
+```
+
+Each device advertises with a faithful payload (manufacturer data,
+service UUIDs, name, appearance; address type + privacy rotation) and, if
+connectable, serves a GATT database (discovery, reads, and notifications
+like heart rate and battery). See [`catalog/README.md`](catalog/README.md)
+for selection flags and exactly what is and isn't modelled.
+
 ### 2b. Attach the host (vhci controller)
 
 The host can join the same medium as a real BlueZ controller, no QEMU

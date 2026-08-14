@@ -1,0 +1,1945 @@
+{
+  "schema_version": "1.0",
+  "generated": "2026-08-13",
+  "purpose": "Source catalog for generating BLE peripheral simulators on a virtualized training medium.",
+  "field_reference": {
+    "id": "Stable slug for the simulator instance.",
+    "class": "generic | specific",
+    "appearance": "GAP Appearance value. Computed as (category << 6) | subcategory. Advertise in AD type 0x19 or expose as GAP char 0x2A01.",
+    "adv": {
+      "name_pattern": "Local Name (AD 0x08 shortened / 0x09 complete). {n} = random hex/decimal token.",
+      "address_type": "public | random_static | rpa (resolvable private) | nrpa (non-resolvable)",
+      "privacy_rotation_s": "Seconds between address/payload rotation. null = static address.",
+      "interval_ms": "[min, max] advertising interval.",
+      "tx_power_dbm": "Radio TX power. Include AD 0x0A only where noted.",
+      "connectable": "Accepts connections in this adv state.",
+      "scannable": "Responds to SCAN_REQ with SCAN_RSP.",
+      "pdu": "ADV_IND | ADV_NONCONN_IND | ADV_SCAN_IND | ADV_EXT_IND",
+      "phy": "1M | 2M | Coded"
+    },
+    "company_id": "16-bit Bluetooth SIG company identifier used in AD type 0xFF.",
+    "manufacturer_data": "Structure of the 0xFF payload following the company ID.",
+    "service_uuids": {
+      "advertised": "UUIDs actually placed in AD 0x02/0x03/0x06/0x07 or service data 0x16/0x20/0x21.",
+      "gatt": "Full service list discoverable after connect."
+    },
+    "gatt": "Services with the characteristics a simulator must implement, and their properties.",
+    "security": "Pairing/bonding expectations. io_cap, method, and minimum security level for sensitive characteristics.",
+    "nuances": "Behaviors that will break a naive simulator if not modeled. This is the important field.",
+    "confidence": "high | medium | low. Applies to the vendor-specific identifiers and payload structures, not to spec-defined UUIDs.",
+    "verify": "Fields to confirm against Bluetooth SIG Assigned Numbers or a live capture before committing."
+  },
+  "global_notes": [
+    "All spec-defined 16-bit UUIDs (0x18xx services, 0x2Axx characteristics) are high confidence and stable.",
+    "Vendor company IDs and member service UUIDs (0xFDxx/0xFExx) drift. Anything marked medium or low should be captured live from real hardware before the simulator ships.",
+    "Legacy adv payload is 31 bytes hard limit. Several profiles below will not fit name + service UUIDs + mfr data simultaneously. Model the overflow into SCAN_RSP or the sim will emit impossible packets.",
+    "Devices using RPAs must regenerate the address and re-derive it from the IRK on schedule. A sim that rotates the address but keeps a static payload is trivially correlated and will not train what you want it to train.",
+    "Battery Level (0x2A19) should decay slowly over sim uptime rather than sitting at a constant, if you want scans over time to look real.",
+    "Where a device advertises both connectable and non-connectable states, model the state machine, not just one packet."
+  ],
+
+  "generic_types": [
+    {
+      "id": "generic_smartphone",
+      "class": "generic",
+      "appearance": { "value": "0x0040", "name": "Generic Phone" },
+      "adv": {
+        "name_pattern": "{FirstName}'s Phone",
+        "address_type": "rpa",
+        "privacy_rotation_s": 900,
+        "interval_ms": [20, 1285],
+        "tx_power_dbm": 4,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "Platform dependent. Modern phones emit OS-specific continuity/nearby payloads rather than a clean generic profile.",
+      "service_uuids": { "advertised": [], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x1805"] },
+      "gatt": [
+        { "uuid": "0x1800", "name": "GAP", "chars": [ { "uuid": "0x2A00", "name": "Device Name", "props": ["read"] }, { "uuid": "0x2A01", "name": "Appearance", "props": ["read"] } ] },
+        { "uuid": "0x180A", "name": "Device Information", "chars": [ { "uuid": "0x2A29", "props": ["read"] }, { "uuid": "0x2A24", "props": ["read"] }, { "uuid": "0x2A26", "props": ["read"] } ] },
+        { "uuid": "0x180F", "name": "Battery", "chars": [ { "uuid": "0x2A19", "props": ["read", "notify"] } ] }
+      ],
+      "security": { "io_cap": "DisplayYesNo", "method": "LE Secure Connections numeric comparison", "bonding": true, "min_level": 2 },
+      "nuances": [
+        "Phones advertise only intermittently, usually while a settings/pairing screen is open or a specific app is foregrounded. A sim that advertises continuously is the single biggest tell.",
+        "Duty cycle: fast interval (20-30 ms) for ~30 s after entering pairing mode, then either stop or drop to ~1 s.",
+        "Phone is usually the GATT central, not peripheral. If the exercise expects the phone to scan and connect outward, this profile is the wrong shape entirely.",
+        "Device name is user-set and leaks a human name. Good for OSINT-style training objectives."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_laptop",
+      "class": "generic",
+      "appearance": { "value": "0x0083", "name": "Laptop" },
+      "adv": {
+        "name_pattern": "{HOSTNAME}",
+        "address_type": "rpa",
+        "privacy_rotation_s": 900,
+        "interval_ms": [100, 1285],
+        "tx_power_dbm": 4,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": null,
+      "service_uuids": { "advertised": [], "gatt": ["0x1800", "0x1801", "0x180A"] },
+      "gatt": [
+        { "uuid": "0x180A", "name": "Device Information", "chars": [ { "uuid": "0x2A29", "props": ["read"] }, { "uuid": "0x2A24", "props": ["read"] }, { "uuid": "0x2A50", "name": "PnP ID", "props": ["read"] } ] }
+      ],
+      "security": { "io_cap": "KeyboardDisplay", "method": "LE Secure Connections passkey entry", "bonding": true, "min_level": 2 },
+      "nuances": [
+        "Dual-mode. A realistic laptop sim should also present a BR/EDR presence if your medium supports it; BLE-only laptops look wrong to an experienced analyst.",
+        "Hostname in the local name is a high-value identifier. Use the same naming convention as the rest of your lab's synthetic host inventory so it correlates.",
+        "Advertises only while the Bluetooth settings pane is open on most OSes. Otherwise it is central-only.",
+        "PnP ID (0x2A50) vendor ID source field: 0x01 = Bluetooth SIG assigned, 0x02 = USB IF assigned. Getting this wrong is a common sim bug."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_tablet",
+      "class": "generic",
+      "appearance": { "value": "0x0087", "name": "Tablet" },
+      "adv": {
+        "name_pattern": "{Brand} Tab {n}",
+        "address_type": "rpa",
+        "privacy_rotation_s": 900,
+        "interval_ms": [100, 1285],
+        "tx_power_dbm": 4,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": null,
+      "service_uuids": { "advertised": [], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F"] },
+      "gatt": [
+        { "uuid": "0x180F", "name": "Battery", "chars": [ { "uuid": "0x2A19", "props": ["read", "notify"] } ] }
+      ],
+      "security": { "io_cap": "DisplayYesNo", "method": "LE Secure Connections numeric comparison", "bonding": true, "min_level": 2 },
+      "nuances": [
+        "Same intermittent-advertising caveat as phone.",
+        "Kiosk-mode tablets (relevant to your 10-tablet scrcpy rig) may advertise continuously if a provisioning app holds an advertiser open. That is a legitimate variant, flag it as such in the sim config.",
+        "Tablets frequently host GATT servers for companion apps; a custom 128-bit vendor service is normal here."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_smartwatch",
+      "class": "generic",
+      "appearance": { "value": "0x00C2", "name": "Smartwatch" },
+      "adv": {
+        "name_pattern": "{Brand} Watch {n}",
+        "address_type": "rpa",
+        "privacy_rotation_s": 900,
+        "interval_ms": [152.5, 417.5],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "Vendor pairing/continuity blob, typically 8-27 bytes.",
+      "service_uuids": { "advertised": ["0x180D", "0x180F"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x180D", "0x1805", "0x1811"] },
+      "gatt": [
+        { "uuid": "0x180D", "name": "Heart Rate", "chars": [ { "uuid": "0x2A37", "props": ["notify"] }, { "uuid": "0x2A38", "props": ["read"] } ] },
+        { "uuid": "0x1805", "name": "Current Time", "chars": [ { "uuid": "0x2A2B", "props": ["read", "notify", "write"] } ] },
+        { "uuid": "0x1811", "name": "Alert Notification", "chars": [ { "uuid": "0x2A46", "props": ["notify"] }, { "uuid": "0x2A44", "props": ["write"] } ] }
+      ],
+      "security": { "io_cap": "DisplayYesNo", "method": "LE Secure Connections numeric comparison", "bonding": true, "min_level": 2 },
+      "nuances": [
+        "Reconnects aggressively to a bonded phone. Model directed advertising (ADV_DIRECT_IND) toward the bonded peer address after a link drop, not undirected.",
+        "Advertises undirected only during initial setup or after a factory reset.",
+        "HR notify rate ~1 Hz while worn, drops to burst-every-few-minutes when idle. A constant 1 Hz stream implies continuous workout mode.",
+        "Alert Notification Service means the watch is a consumer of phone notifications; the direction of data flow is watch-as-server, phone-as-client writing control points."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_fitness_band",
+      "class": "generic",
+      "appearance": { "value": "0x00C0", "name": "Generic Watch" },
+      "adv": {
+        "name_pattern": "Band {n}",
+        "address_type": "random_static",
+        "privacy_rotation_s": null,
+        "interval_ms": [200, 1000],
+        "tx_power_dbm": -4,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "Often carries a compressed step/HR summary so the phone app can sync without connecting.",
+      "service_uuids": { "advertised": ["0x180D", "0x181C"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x180D", "0x1814"] },
+      "gatt": [
+        { "uuid": "0x180D", "name": "Heart Rate", "chars": [ { "uuid": "0x2A37", "props": ["notify"] } ] },
+        { "uuid": "0x1814", "name": "Running Speed and Cadence", "chars": [ { "uuid": "0x2A53", "props": ["notify"] }, { "uuid": "0x2A54", "props": ["read"] } ] },
+        { "uuid": "0x180F", "name": "Battery", "chars": [ { "uuid": "0x2A19", "props": ["read", "notify"] } ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works", "bonding": true, "min_level": 1 },
+      "nuances": [
+        "Many budget bands use a static random address that never rotates. This makes them ideal tracking targets and is a common CTF objective. Keep at least a few sims in this state deliberately.",
+        "Low TX power (-4 to -8 dBm) gives a short, realistic range envelope. If your medium models RSSI, this device should fall off much faster than a phone.",
+        "Advertising continues even while bonded and connected on many implementations, which is technically wasteful but very common in the wild.",
+        "Vendor sync protocol is usually a proprietary 128-bit service, not the standard fitness services. Standard services are frequently present but return zeros."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_wireless_earbuds",
+      "class": "generic",
+      "appearance": { "value": "0x0941", "name": "Earbud" },
+      "adv": {
+        "name_pattern": "{Brand} Buds",
+        "address_type": "rpa",
+        "privacy_rotation_s": 900,
+        "interval_ms": [20, 152.5],
+        "tx_power_dbm": 4,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "Pairing beacon containing model ID, lid state, and per-bud battery.",
+      "service_uuids": { "advertised": ["0xFE2C"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x1843", "0x1844"] },
+      "gatt": [
+        { "uuid": "0x180F", "name": "Battery", "chars": [ { "uuid": "0x2A19", "props": ["read", "notify"] } ] },
+        { "uuid": "0x1844", "name": "Volume Control", "chars": [ { "uuid": "0x2B7D", "props": ["read", "notify"] }, { "uuid": "0x2B7E", "props": ["write"] } ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works", "bonding": true, "min_level": 2 },
+      "nuances": [
+        "The BLE advertisement is a pairing/discovery channel only. The actual audio is Classic A2DP or LE Audio isochronous streams. A BLE-only sim cannot represent the audio path, only the discovery surface.",
+        "Fast, high-power advertising (20 ms) for ~30 s on case-open, then rapid backoff. The burst-then-quiet pattern is the recognizable signature.",
+        "Case open/close is the state trigger. Model at least three states: in-case-closed (silent), in-case-open (pairing burst), out-of-case-connected (low-rate or silent).",
+        "Battery is reported separately for left bud, right bud, and case. A single battery value is a tell."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_bt_speaker",
+      "class": "generic",
+      "appearance": { "value": "0x0841", "name": "Standalone Speaker" },
+      "adv": {
+        "name_pattern": "{Brand} {Model}-{n}",
+        "address_type": "public",
+        "privacy_rotation_s": null,
+        "interval_ms": [100, 500],
+        "tx_power_dbm": 4,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": null,
+      "service_uuids": { "advertised": [], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F"] },
+      "gatt": [
+        { "uuid": "0x180A", "name": "Device Information", "chars": [ { "uuid": "0x2A29", "props": ["read"] }, { "uuid": "0x2A24", "props": ["read"] } ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works", "bonding": true, "min_level": 1 },
+      "nuances": [
+        "Frequently uses a public (OUI-derived) address. The OUI is directly attributable to the manufacturer, which is a useful and realistic training artifact. Pull OUIs from the real IEEE registry for whichever brand you fake.",
+        "Primarily a Classic BR/EDR device. It sits in discoverable Classic mode and may only advertise BLE for app control or a Fast Pair-style handoff.",
+        "Advertises continuously and indefinitely when unpaired, unlike most other categories. This is the always-on noise source in a scan.",
+        "Names often include a partial MAC suffix, which correlates the local name to the address."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_hid_keyboard",
+      "class": "generic",
+      "appearance": { "value": "0x03C1", "name": "Keyboard" },
+      "adv": {
+        "name_pattern": "{Brand} Keyboard K{n}",
+        "address_type": "random_static",
+        "privacy_rotation_s": null,
+        "interval_ms": [30, 60],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": null,
+      "service_uuids": { "advertised": ["0x1812"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x1812"] },
+      "gatt": [
+        { "uuid": "0x1812", "name": "HID", "chars": [
+          { "uuid": "0x2A4A", "name": "HID Information", "props": ["read"] },
+          { "uuid": "0x2A4B", "name": "Report Map", "props": ["read"] },
+          { "uuid": "0x2A4C", "name": "HID Control Point", "props": ["write_no_response"] },
+          { "uuid": "0x2A4D", "name": "Report", "props": ["read", "notify"], "note": "Input report, Report Reference descriptor 0x2908 required" },
+          { "uuid": "0x2A4E", "name": "Protocol Mode", "props": ["read", "write_no_response"] },
+          { "uuid": "0x2A22", "name": "Boot Keyboard Input Report", "props": ["read", "notify"] },
+          { "uuid": "0x2A32", "name": "Boot Keyboard Output Report", "props": ["read", "write", "write_no_response"] }
+        ] }
+      ],
+      "security": { "io_cap": "KeyboardOnly", "method": "LE Secure Connections passkey entry (host displays, keyboard types)", "bonding": true, "min_level": 3 },
+      "nuances": [
+        "HID over GATT mandates encryption. Reads of the Report characteristics MUST return Insufficient Authentication (0x05) before pairing. A sim that serves reports unencrypted is the classic HOGP implementation bug and will not train correct behavior.",
+        "Report Map (0x2A4B) is a real USB HID report descriptor blob. It must parse or the host will reject the device. Reuse a known-good boot keyboard descriptor rather than synthesizing one.",
+        "Every Report characteristic needs a Report Reference descriptor (0x2908) with report ID and type (1=input, 2=output, 3=feature). Missing descriptors are the second most common bug.",
+        "Protocol Mode must support both Boot (0x00) and Report (0x01). Hosts probe Boot mode during early enumeration.",
+        "Fast 30 ms advertising while unbonded; directed advertising to the bonded peer on wake. Keyboards wake on keypress, so advertising is bursty and correlates with human activity.",
+        "This is a natural injection/spoofing target for exercises. Model the case where an attacker clones the address and appearance but cannot satisfy the bonded LTK."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_hid_mouse",
+      "class": "generic",
+      "appearance": { "value": "0x03C2", "name": "Mouse" },
+      "adv": {
+        "name_pattern": "{Brand} Mouse M{n}",
+        "address_type": "random_static",
+        "privacy_rotation_s": null,
+        "interval_ms": [30, 60],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": null,
+      "service_uuids": { "advertised": ["0x1812"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x1812"] },
+      "gatt": [
+        { "uuid": "0x1812", "name": "HID", "chars": [
+          { "uuid": "0x2A4A", "props": ["read"] },
+          { "uuid": "0x2A4B", "props": ["read"] },
+          { "uuid": "0x2A4D", "name": "Report", "props": ["read", "notify"] },
+          { "uuid": "0x2A4E", "props": ["read", "write_no_response"] },
+          { "uuid": "0x2A33", "name": "Boot Mouse Input Report", "props": ["read", "notify"] }
+        ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works with LE Secure Connections", "bonding": true, "min_level": 2 },
+      "nuances": [
+        "Same encryption-before-report rule as the keyboard.",
+        "IO capability is NoInputNoOutput, so it cannot do passkey entry. It negotiates Just Works, which yields a weaker level than a keyboard. That asymmetry between keyboard and mouse is a good teaching point.",
+        "Connection interval negotiates very low (7.5-11.25 ms) for pointer responsiveness. If your medium models timing, mice are the tightest-interval devices in a typical scan.",
+        "Report rate is bursty and tied to motion; idle mice go silent entirely and may drop the link after a timeout."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_item_tracker",
+      "class": "generic",
+      "appearance": { "value": "0x0200", "name": "Generic Tag" },
+      "adv": {
+        "name_pattern": null,
+        "address_type": "rpa",
+        "privacy_rotation_s": 900,
+        "interval_ms": [1000, 2000],
+        "tx_power_dbm": 4,
+        "connectable": false,
+        "scannable": false,
+        "pdu": "ADV_NONCONN_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "Rotating public key or ephemeral ID, typically 20-27 bytes.",
+      "service_uuids": { "advertised": [], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x1802"] },
+      "gatt": [
+        { "uuid": "0x1802", "name": "Immediate Alert", "chars": [ { "uuid": "0x2A06", "name": "Alert Level", "props": ["write_no_response"] } ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works", "bonding": false, "min_level": 1 },
+      "nuances": [
+        "Two distinct advertising states. Near-owner: quiet, long interval, minimal payload. Separated/lost: different payload, sometimes shorter interval, and the crowd-sourced finding payload appears. Model both plus the transition timer (typically several minutes to hours).",
+        "Non-connectable in the normal state. It only becomes connectable during a deliberate pairing or unwanted-tracking interaction. A sim that is always connectable is wrong.",
+        "The whole point of the payload is that it rotates and is unlinkable. If your simulator rotates the address but reuses the payload bytes, students can trivially defeat it, which may or may not be the lesson you want.",
+        "Anti-stalking behavior: after a period separated from its owner near a stranger, real tags emit an audible alert and may change advertising to be discoverable. This is a rich exercise scenario.",
+        "Immediate Alert (0x1802) with Alert Level 0x02 is the standard 'make it beep' path and is often unauthenticated. Good vulnerability demo."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_ibeacon",
+      "class": "generic",
+      "appearance": { "value": "0x0200", "name": "Generic Tag" },
+      "adv": {
+        "name_pattern": null,
+        "address_type": "random_static",
+        "privacy_rotation_s": null,
+        "interval_ms": [100, 100],
+        "tx_power_dbm": -12,
+        "connectable": false,
+        "scannable": false,
+        "pdu": "ADV_NONCONN_IND",
+        "phy": "1M"
+      },
+      "company_id": "0x004C",
+      "manufacturer_data": {
+        "layout": "4C 00 | 02 | 15 | <16-byte proximity UUID> | <major uint16 BE> | <minor uint16 BE> | <measured power int8>",
+        "total_ad_bytes": 25,
+        "notes": "Type byte 0x02, length byte 0x15 (21). Major/minor are big-endian, which is unusual for BLE and a frequent sim bug. Measured power is the calibrated RSSI at 1 m, typically -59 to -65."
+      },
+      "service_uuids": { "advertised": [], "gatt": [] },
+      "gatt": [],
+      "security": { "io_cap": "NoInputNoOutput", "method": "none", "bonding": false, "min_level": 1 },
+      "nuances": [
+        "iBeacon is Apple's format but uses no Apple hardware. Any radio can emit it, which is exactly why it is a good spoofing exercise.",
+        "Fully non-connectable and stateless. There is no GATT server at all in pure beacon mode. Many real beacons expose a separate connectable config mode entered by button press or magnet.",
+        "The 25-byte payload plus 3-byte flags leaves only 3 bytes in a legacy adv PDU. There is no room for a local name. If your sim emits a name alongside a full iBeacon frame, it exceeds 31 bytes.",
+        "Fixed 100 ms interval is the Apple recommendation and produces a very regular, machine-like packet cadence that stands out from human-carried devices.",
+        "Deployments use a single proximity UUID per operator, with major/minor as site/unit. Build your lab's beacons with a coherent UUID/major/minor scheme so students can map the topology."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_eddystone",
+      "class": "generic",
+      "appearance": { "value": "0x0200", "name": "Generic Tag" },
+      "adv": {
+        "name_pattern": null,
+        "address_type": "random_static",
+        "privacy_rotation_s": null,
+        "interval_ms": [100, 1000],
+        "tx_power_dbm": -12,
+        "connectable": false,
+        "scannable": false,
+        "pdu": "ADV_NONCONN_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": null,
+      "service_uuids": {
+        "advertised": ["0xFEAA"],
+        "gatt": [],
+        "service_data_0x16": {
+          "uuid": "0xFEAA",
+          "frame_types": {
+            "0x00": "UID: ranging data int8 | 10-byte namespace | 6-byte instance | 2 reserved",
+            "0x10": "URL: ranging data int8 | url scheme prefix byte | encoded URL bytes",
+            "0x20": "TLM: version | battery mV uint16 | temp 8.8 fixed point | adv count uint32 | uptime in 0.1s uint32",
+            "0x30": "EID: ranging data int8 | 8-byte ephemeral identifier"
+          }
+        }
+      },
+      "gatt": [],
+      "security": { "io_cap": "NoInputNoOutput", "method": "none", "bonding": false, "min_level": 1 },
+      "nuances": [
+        "Uses service data (AD type 0x16) under UUID 0xFEAA, not manufacturer data. This is the structural difference from iBeacon and the thing students should learn to distinguish.",
+        "Real deployments interleave frame types round-robin: several UID or URL frames, then one TLM. A sim emitting a single frame type forever is unrealistic and hides the telemetry lesson.",
+        "TLM uptime and adv count are monotonic counters. They must actually increment across the sim's lifetime, and they leak how long the beacon has been running.",
+        "URL frames use a compressed scheme prefix and suffix encoding to fit in the payload. Do not emit raw ASCII URLs.",
+        "EID frames rotate on a schedule derived from a shared key and are the privacy-preserving variant. Include at least one EID beacon if you want a resolution exercise.",
+        "Eddystone is formally deprecated by Google but remains widely deployed. That gap between deprecated and present is itself worth teaching."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_hr_chest_strap",
+      "class": "generic",
+      "appearance": { "value": "0x0341", "name": "Heart Rate Sensor: Belt" },
+      "adv": {
+        "name_pattern": "HRM {n}",
+        "address_type": "public",
+        "privacy_rotation_s": null,
+        "interval_ms": [100, 500],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": null,
+      "service_uuids": { "advertised": ["0x180D", "0x180F"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x180D"] },
+      "gatt": [
+        { "uuid": "0x180D", "name": "Heart Rate", "chars": [
+          { "uuid": "0x2A37", "name": "Heart Rate Measurement", "props": ["notify"], "note": "Flags byte bit0: 0=uint8 BPM, 1=uint16 BPM. bit1-2 sensor contact. bit3 energy expended present. bit4 RR-interval present." },
+          { "uuid": "0x2A38", "name": "Body Sensor Location", "props": ["read"], "note": "0x01 = Chest" },
+          { "uuid": "0x2A39", "name": "Heart Rate Control Point", "props": ["write"], "note": "0x01 resets energy expended" }
+        ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works or none", "bonding": false, "min_level": 1 },
+      "nuances": [
+        "Most straps require no pairing at all. Anyone can connect and subscribe. This is deliberate for interoperability with gym equipment and is an excellent privacy discussion.",
+        "Notification cadence is one per heartbeat, not one per second. At 150 BPM that is 2.5 notifications/sec. A fixed 1 Hz stream is the classic lazy-sim tell.",
+        "RR intervals are in units of 1/1024 second, not milliseconds. Nearly everyone gets this wrong on the first pass.",
+        "Sensor contact bits flip when the strap is dry or removed. Model a contact-loss state that reports HR of 0 with contact-not-detected.",
+        "Only one central can be connected on most straps. A second connection attempt fails, which makes 'who owns the connection' a real exercise constraint.",
+        "Public address, no rotation. Persistently trackable."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_blood_pressure_monitor",
+      "class": "generic",
+      "appearance": { "value": "0x0381", "name": "Blood Pressure: Arm" },
+      "adv": {
+        "name_pattern": "BP{n}",
+        "address_type": "public",
+        "privacy_rotation_s": null,
+        "interval_ms": [100, 1285],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": null,
+      "service_uuids": { "advertised": ["0x1810"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x1810"] },
+      "gatt": [
+        { "uuid": "0x1810", "name": "Blood Pressure", "chars": [
+          { "uuid": "0x2A35", "name": "Blood Pressure Measurement", "props": ["indicate"], "note": "Indicate, not notify. Reliability matters for medical data." },
+          { "uuid": "0x2A36", "name": "Intermediate Cuff Pressure", "props": ["notify"] },
+          { "uuid": "0x2A49", "name": "Blood Pressure Feature", "props": ["read"] }
+        ] }
+      ],
+      "security": { "io_cap": "DisplayOnly", "method": "LE Legacy or Secure passkey entry", "bonding": true, "min_level": 3 },
+      "nuances": [
+        "Measurements are indications, not notifications. The simulator must wait for the ATT confirmation before sending the next one. Fire-and-forget breaks the profile.",
+        "Values are IEEE-11073 16-bit SFLOAT, not plain integers. A 4-bit exponent and 12-bit signed mantissa. This trips up almost every first-pass implementation.",
+        "The device only advertises after a measurement completes or a button press, then stops after a short window. It is not a continuously present device in a scan.",
+        "Intermediate Cuff Pressure streams during inflation and stops at the reading. Model the inflate ramp if you want a realistic capture.",
+        "Encryption is required for the measurement characteristic per the profile. This is a good contrast case against the wide-open heart rate strap."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_glucose_meter",
+      "class": "generic",
+      "appearance": { "value": "0x0400", "name": "Generic Glucose Meter" },
+      "adv": {
+        "name_pattern": "Meter {n}",
+        "address_type": "public",
+        "privacy_rotation_s": null,
+        "interval_ms": [100, 1285],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": null,
+      "service_uuids": { "advertised": ["0x1808"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x1808"] },
+      "gatt": [
+        { "uuid": "0x1808", "name": "Glucose", "chars": [
+          { "uuid": "0x2A18", "name": "Glucose Measurement", "props": ["notify"] },
+          { "uuid": "0x2A34", "name": "Glucose Measurement Context", "props": ["notify"] },
+          { "uuid": "0x2A51", "name": "Glucose Feature", "props": ["read"] },
+          { "uuid": "0x2A52", "name": "Record Access Control Point", "props": ["write", "indicate"] }
+        ] }
+      ],
+      "security": { "io_cap": "DisplayOnly", "method": "passkey entry", "bonding": true, "min_level": 3 },
+      "nuances": [
+        "The Record Access Control Point is the heart of this profile. The client writes an opcode (report stored records, delete, abort, report number of records) with an operator (all, less than or equal, within range, first, last) and the device replays historical records as a burst of notifications, terminating with an RACP indication. Simulating only live measurements misses the entire profile.",
+        "Stored records means the sim needs a persistent record database with sequence numbers and base times. Build that in from the start.",
+        "SFLOAT encoding again for concentration values.",
+        "Bonding is effectively mandatory. Meters typically refuse RACP operations without an encrypted, bonded link.",
+        "Health data at rest in the sim is a nice hook for a forensics crossover exercise."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_cgm",
+      "class": "generic",
+      "appearance": { "value": "0x0D00", "name": "Continuous Glucose Monitor" },
+      "adv": {
+        "name_pattern": "CGM{n}",
+        "address_type": "random_static",
+        "privacy_rotation_s": null,
+        "interval_ms": [1000, 2000],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": null,
+      "service_uuids": { "advertised": ["0x181F"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x181F"] },
+      "gatt": [
+        { "uuid": "0x181F", "name": "Continuous Glucose Monitoring", "chars": [
+          { "uuid": "0x2AA7", "name": "CGM Measurement", "props": ["notify"] },
+          { "uuid": "0x2AA8", "name": "CGM Feature", "props": ["read"] },
+          { "uuid": "0x2AA9", "name": "CGM Status", "props": ["read"] },
+          { "uuid": "0x2AAA", "name": "CGM Session Start Time", "props": ["read", "write"] },
+          { "uuid": "0x2AAB", "name": "CGM Session Run Time", "props": ["read"] },
+          { "uuid": "0x2AAC", "name": "CGM Specific Ops Control Point", "props": ["write", "indicate"] },
+          { "uuid": "0x2A52", "name": "Record Access Control Point", "props": ["write", "indicate"] }
+        ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works or out-of-band via app", "bonding": true, "min_level": 3 },
+      "nuances": [
+        "Optional E2E-CRC on measurements, declared in CGM Feature. If the feature bit is set, every measurement must carry a correct CRC-16 or the client discards it. Decide once and be consistent.",
+        "Sessions have a start time and a run time. A CGM is not stateless; it has a wear period (typically 10-15 days) that expires. Model session expiry.",
+        "Measurement cadence is every 1-5 minutes, far slower than a heart rate sensor, but it never stops during a session. Long-running, low-rate, always-present.",
+        "Warmup period after session start where the device advertises and connects but reports no valid readings. Realistic and often forgotten.",
+        "Most commercial CGMs do NOT use the standard 0x181F service; they use proprietary encrypted transports. This generic profile is the spec-correct version, which is useful for teaching the standard but will not match a real capture of a brand-name sensor."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_pulse_oximeter",
+      "class": "generic",
+      "appearance": { "value": "0x0C41", "name": "Pulse Oximeter: Fingertip" },
+      "adv": {
+        "name_pattern": "SpO2-{n}",
+        "address_type": "public",
+        "privacy_rotation_s": null,
+        "interval_ms": [100, 500],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": null,
+      "service_uuids": { "advertised": ["0x1822"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x1822"] },
+      "gatt": [
+        { "uuid": "0x1822", "name": "Pulse Oximeter", "chars": [
+          { "uuid": "0x2A5E", "name": "PLX Spot-Check Measurement", "props": ["indicate"] },
+          { "uuid": "0x2A5F", "name": "PLX Continuous Measurement", "props": ["notify"] },
+          { "uuid": "0x2A60", "name": "PLX Features", "props": ["read"] },
+          { "uuid": "0x2A52", "name": "Record Access Control Point", "props": ["write", "indicate"] }
+        ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works", "bonding": true, "min_level": 2 },
+      "nuances": [
+        "Two distinct measurement modes. Spot-check is indicate and episodic; continuous is notify and streams at ~1 Hz. A device may support one or both, declared in PLX Features. Pick and declare consistently.",
+        "SFLOAT for both SpO2 percentage and pulse rate.",
+        "Cheap fingertip units are unauthenticated and stream to anyone. Clinical units require bonding. Both variants are realistic; include one of each.",
+        "The device powers off after a short idle period and disappears from scans entirely. Model the auto-off timer.",
+        "Measurement Status and Device and Sensor Status fields carry flags like 'poor signal' and 'sensor unconnected'. Vary these rather than always reporting a clean reading."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_smart_scale",
+      "class": "generic",
+      "appearance": { "value": "0x0C80", "name": "Weight Scale" },
+      "adv": {
+        "name_pattern": "Scale-{n}",
+        "address_type": "public",
+        "privacy_rotation_s": null,
+        "interval_ms": [200, 1000],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "Many scales broadcast the reading in manufacturer or service data so the app can capture it without connecting.",
+      "service_uuids": { "advertised": ["0x181D", "0x181B"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x181D", "0x181B"] },
+      "gatt": [
+        { "uuid": "0x181D", "name": "Weight Scale", "chars": [
+          { "uuid": "0x2A9D", "name": "Weight Measurement", "props": ["indicate"] },
+          { "uuid": "0x2A9E", "name": "Weight Scale Feature", "props": ["read"] }
+        ] },
+        { "uuid": "0x181B", "name": "Body Composition", "chars": [
+          { "uuid": "0x2A9C", "name": "Body Composition Measurement", "props": ["indicate"] },
+          { "uuid": "0x2A9B", "name": "Body Composition Feature", "props": ["read"] }
+        ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works", "bonding": true, "min_level": 2 },
+      "nuances": [
+        "The scale is asleep and radio-silent almost all the time. It wakes on step-on, advertises for 30-60 s, transfers, and sleeps. Presence in a scan is a strong signal that someone just weighed themselves, which is a nice inference exercise.",
+        "Multi-user scales tag measurements with a User Index and expose the User Data Service (0x181C) with a User Control Point for registration. If you want multi-user realism you need 0x181C too.",
+        "Weight resolution is declared in the Feature characteristic and the measurement units bit selects kg vs lb. Mismatched units are a common bug.",
+        "Broadcast-only scales that never accept connections exist. Include at least one so students learn that not every device is connectable.",
+        "Stored measurements for a user who was not present at sync time is a realistic data-at-rest scenario."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_thermometer",
+      "class": "generic",
+      "appearance": { "value": "0x0300", "name": "Generic Thermometer" },
+      "adv": {
+        "name_pattern": "Temp-{n}",
+        "address_type": "public",
+        "privacy_rotation_s": null,
+        "interval_ms": [200, 1000],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": null,
+      "service_uuids": { "advertised": ["0x1809"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x1809"] },
+      "gatt": [
+        { "uuid": "0x1809", "name": "Health Thermometer", "chars": [
+          { "uuid": "0x2A1C", "name": "Temperature Measurement", "props": ["indicate"] },
+          { "uuid": "0x2A1E", "name": "Intermediate Temperature", "props": ["notify"] },
+          { "uuid": "0x2A1D", "name": "Temperature Type", "props": ["read"] },
+          { "uuid": "0x2A21", "name": "Measurement Interval", "props": ["read", "write", "indicate"] }
+        ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works", "bonding": false, "min_level": 1 },
+      "nuances": [
+        "IEEE-11073 32-bit FLOAT here, not the 16-bit SFLOAT used by BP and glucose. Two different medical float encodings in the same catalog; do not let the agent share one codec.",
+        "Intermediate Temperature notifies during the rise; the final stable reading comes as an indication on 0x2A1C. The two-stage flow is the profile's signature.",
+        "Temperature Type enumerates body site (armpit, ear, finger, oral, rectal, etc.). Cooking probes misuse this profile and often report a nonsense type.",
+        "Measurement Interval is writable, so a client can change the device's behavior. That is a small but real attack surface worth exposing.",
+        "Cooking probes (as opposed to medical) usually advertise continuously with the temp in the adv payload and never require a connection at all."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_smart_lock",
+      "class": "generic",
+      "appearance": { "value": "0x0701", "name": "Access Control: Door Lock" },
+      "adv": {
+        "name_pattern": "{Brand} Lock {n}",
+        "address_type": "rpa",
+        "privacy_rotation_s": 900,
+        "interval_ms": [500, 2000],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "Vendor blob typically carrying lock state, firmware generation, and a device identifier.",
+      "service_uuids": { "advertised": ["<vendor 128-bit>"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "<vendor 128-bit>"] },
+      "gatt": [
+        { "uuid": "<vendor-128>", "name": "Lock Control", "chars": [
+          { "uuid": "<vendor-128>", "name": "Command", "props": ["write"], "note": "Application-layer encrypted, typically AES-CCM with a session key" },
+          { "uuid": "<vendor-128>", "name": "Response", "props": ["notify"] },
+          { "uuid": "<vendor-128>", "name": "Session Nonce", "props": ["read"] }
+        ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works at link layer, real security at application layer", "bonding": true, "min_level": 2 },
+      "nuances": [
+        "The critical architectural point: most smart locks do NOT rely on BLE link-layer security. They pair Just Works and then run their own challenge-response over GATT with keys provisioned out-of-band by the vendor's cloud. Your simulator must model the application-layer crypto or the exercise teaches nothing.",
+        "Session nonce plus AES-CCM means replay of a captured unlock command should fail. Build the nonce handling correctly, then optionally ship a deliberately broken variant for a replay-attack lab.",
+        "Advertising continues 24/7 because the lock must be reachable. It is one of the few always-on, always-connectable devices.",
+        "Lock state (locked/unlocked/jammed) leaking in the unencrypted advertising payload is a real and common design flaw. Excellent teaching target.",
+        "Battery level here is operationally meaningful, not cosmetic. A dead lock is a physical security event.",
+        "Firmware update service (DFU) is usually present and is a high-value target. Consider exposing one."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_smart_bulb",
+      "class": "generic",
+      "appearance": { "value": "0x07C2", "name": "Light Source: LED Lamp" },
+      "adv": {
+        "name_pattern": "{Brand} Bulb {n}",
+        "address_type": "public",
+        "privacy_rotation_s": null,
+        "interval_ms": [500, 1000],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "Frequently carries current on/off state and color mode.",
+      "service_uuids": { "advertised": ["<vendor 128-bit>"], "gatt": ["0x1800", "0x1801", "0x180A", "<vendor 128-bit>"] },
+      "gatt": [
+        { "uuid": "<vendor-128>", "name": "Light Control", "chars": [
+          { "uuid": "<vendor-128>", "name": "On/Off", "props": ["read", "write"] },
+          { "uuid": "<vendor-128>", "name": "Brightness", "props": ["read", "write"] },
+          { "uuid": "<vendor-128>", "name": "Color (xy or RGB)", "props": ["read", "write"] },
+          { "uuid": "<vendor-128>", "name": "Effect/Scene", "props": ["write"] }
+        ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works, frequently no authentication at all", "bonding": false, "min_level": 1 },
+      "nuances": [
+        "No battery service. Mains powered, so a Battery Service on a bulb is an immediate realism error.",
+        "Very commonly wide open. Unauthenticated writes to the on/off and color characteristics are the norm on budget bulbs. This is the easiest and most satisfying first BLE exploit for students.",
+        "Many bulbs advertise a commissioning/setup service only until they join a mesh or hub, then switch to a much quieter operational profile. Model both states.",
+        "Bulbs in a room create dense, near-identical advertisers with sequential addresses from the same OUI. That density is realistic and good for teaching scan filtering.",
+        "Some are BLE Mesh rather than plain GATT. Mesh uses entirely different PDU types (0x2A network, 0x2B beacon, 0x2C provisioning). If you want mesh, that is a separate simulator class."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_smart_plug",
+      "class": "generic",
+      "appearance": { "value": "0x0783", "name": "Power Device: Plug" },
+      "adv": {
+        "name_pattern": "Plug-{n}",
+        "address_type": "public",
+        "privacy_rotation_s": null,
+        "interval_ms": [500, 1500],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "Often includes relay state and instantaneous power draw.",
+      "service_uuids": { "advertised": ["<vendor 128-bit>"], "gatt": ["0x1800", "0x1801", "0x180A", "0x1815", "<vendor 128-bit>"] },
+      "gatt": [
+        { "uuid": "0x1815", "name": "Automation IO", "chars": [ { "uuid": "0x2A56", "name": "Digital", "props": ["read", "write", "notify"] } ] },
+        { "uuid": "<vendor-128>", "name": "Energy Monitoring", "chars": [ { "uuid": "<vendor-128>", "name": "Power (W)", "props": ["read", "notify"] } ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works or vendor PIN", "bonding": false, "min_level": 1 },
+      "nuances": [
+        "Mains powered, no battery service.",
+        "Power draw broadcast in the clear is a side channel: it reveals what appliance is plugged in and when it runs. Model a plausible load profile (fridge cycling, kettle spikes) rather than a constant.",
+        "Most BLE plugs are actually Wi-Fi devices that only use BLE for onboarding. In that case BLE advertising appears for a few minutes at first power-up and then disappears forever. That transient is a realistic and easily missed capture.",
+        "Onboarding mode often accepts a Wi-Fi SSID and PSK written over an unauthenticated characteristic. Credential capture during provisioning is a strong exercise."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_thermostat",
+      "class": "generic",
+      "appearance": { "value": "0x0601", "name": "HVAC: Thermostat" },
+      "adv": {
+        "name_pattern": "Thermostat-{n}",
+        "address_type": "rpa",
+        "privacy_rotation_s": 900,
+        "interval_ms": [500, 2000],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": null,
+      "service_uuids": { "advertised": ["<vendor 128-bit>"], "gatt": ["0x1800", "0x1801", "0x180A", "0x181A", "<vendor 128-bit>"] },
+      "gatt": [
+        { "uuid": "0x181A", "name": "Environmental Sensing", "chars": [
+          { "uuid": "0x2A6E", "name": "Temperature", "props": ["read", "notify"] },
+          { "uuid": "0x2A6F", "name": "Humidity", "props": ["read", "notify"] }
+        ] },
+        { "uuid": "<vendor-128>", "name": "Thermostat Control", "chars": [
+          { "uuid": "<vendor-128>", "name": "Setpoint", "props": ["read", "write"] },
+          { "uuid": "<vendor-128>", "name": "Mode", "props": ["read", "write"] },
+          { "uuid": "<vendor-128>", "name": "HVAC State", "props": ["read", "notify"] }
+        ] }
+      ],
+      "security": { "io_cap": "DisplayYesNo", "method": "vendor pairing with on-screen confirmation", "bonding": true, "min_level": 2 },
+      "nuances": [
+        "ESS Temperature (0x2A6E) is sint16 in 0.01 degrees C. Humidity (0x2A6F) is uint16 in 0.01 percent. Wrong scaling factors here are extremely common.",
+        "Temperature should track a slow diurnal curve, not jitter randomly. You already do diurnal curves in your fake-services generators; reuse that shape.",
+        "HVAC state transitions (idle, heating, cooling, fan) should be driven by the setpoint vs current temperature, so a student who writes the setpoint sees a consequent state change. That causality is what makes the sim worth attacking.",
+        "Like plugs, many thermostats use BLE only for setup and Wi-Fi thereafter.",
+        "Occupancy inference from thermostat data is a meaningful privacy lesson."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_environmental_sensor",
+      "class": "generic",
+      "appearance": { "value": "0x0543", "name": "Sensor: Temperature" },
+      "adv": {
+        "name_pattern": "ENV-{n}",
+        "address_type": "random_static",
+        "privacy_rotation_s": null,
+        "interval_ms": [1000, 10000],
+        "tx_power_dbm": -8,
+        "connectable": false,
+        "scannable": true,
+        "pdu": "ADV_SCAN_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "Sensor readings packed into the advertisement so no connection is ever needed.",
+      "service_uuids": {
+        "advertised": ["0x181A"],
+        "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x181A"],
+        "service_data_0x16": { "uuid": "0x181A", "layout": "Commonly temp sint16 (0.01C) | humidity uint16 (0.01%) | pressure uint24 or uint32 (Pa) | battery" }
+      },
+      "gatt": [
+        { "uuid": "0x181A", "name": "Environmental Sensing", "chars": [
+          { "uuid": "0x2A6E", "name": "Temperature", "props": ["read", "notify"] },
+          { "uuid": "0x2A6F", "name": "Humidity", "props": ["read", "notify"] },
+          { "uuid": "0x2A6D", "name": "Pressure", "props": ["read", "notify"], "note": "uint32 in 0.1 Pa" }
+        ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "none", "bonding": false, "min_level": 1 },
+      "nuances": [
+        "Broadcast-first design. The whole value proposition is coin-cell battery life measured in years, which means long intervals, low TX power, and no connection. If your sim connects readily it defeats the archetype.",
+        "Pressure (0x2A6D) is uint32 in units of 0.1 Pascal. Temperature is 0.01 C. Humidity is 0.01 percent. Three different scaling factors in one service.",
+        "Battery voltage, not percentage, is what these actually report internally. A coin cell dropping from 3.0 V to 2.2 V over months is the realistic curve.",
+        "ESS descriptors (ES Measurement 0x290C, ES Trigger Setting 0x290D, Valid Range 0x2906) are part of a correct implementation and are almost always omitted by simulators.",
+        "Multiple instances of the same characteristic UUID within one service are legal here (e.g. two temperature sensors) and distinguished by Characteristic User Description. Good edge case for testing student tooling."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "generic_cycling_sensor",
+      "class": "generic",
+      "appearance": { "value": "0x0485", "name": "Cycling: Speed and Cadence Sensor" },
+      "adv": {
+        "name_pattern": "CSC {n}",
+        "address_type": "public",
+        "privacy_rotation_s": null,
+        "interval_ms": [100, 500],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": null,
+      "service_uuids": { "advertised": ["0x1816", "0x1818"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x1816", "0x1818"] },
+      "gatt": [
+        { "uuid": "0x1816", "name": "Cycling Speed and Cadence", "chars": [
+          { "uuid": "0x2A5B", "name": "CSC Measurement", "props": ["notify"] },
+          { "uuid": "0x2A5C", "name": "CSC Feature", "props": ["read"] },
+          { "uuid": "0x2A5D", "name": "Sensor Location", "props": ["read"] },
+          { "uuid": "0x2A55", "name": "SC Control Point", "props": ["write", "indicate"] }
+        ] },
+        { "uuid": "0x1818", "name": "Cycling Power", "chars": [
+          { "uuid": "0x2A63", "name": "Cycling Power Measurement", "props": ["notify"] },
+          { "uuid": "0x2A65", "name": "Cycling Power Feature", "props": ["read"] },
+          { "uuid": "0x2A64", "name": "Cycling Power Vector", "props": ["notify"] },
+          { "uuid": "0x2A66", "name": "Cycling Power Control Point", "props": ["write", "indicate"] }
+        ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "none", "bonding": false, "min_level": 1 },
+      "nuances": [
+        "Cumulative revolutions is a monotonically increasing uint32 (wheel) or uint16 (crank) that must never reset while connected. Clients compute speed by differencing successive values. A sim that reports instantaneous speed instead of cumulative counts is fundamentally wrong.",
+        "Last Event Time is in units of 1/1024 second and WRAPS at 64 seconds. Clients must handle the rollover, and your sim must actually produce it. This is the single most important nuance in the profile.",
+        "Notification rate is ~1 Hz regardless of cadence, unlike heart rate which is per-beat.",
+        "Unauthenticated by design so any bike computer can read it. Multiple simultaneous centrals are common; some sensors support 2-3 connections at once.",
+        "SC Control Point supports setting cumulative value and updating wheel circumference, so a client can rewrite the sensor's odometer. Nice small integrity lesson."
+      ],
+      "confidence": "high",
+      "verify": []
+    }
+  ],
+
+  "specific_devices": [
+    {
+      "id": "apple_airpods_pro_2",
+      "class": "specific",
+      "label": "Apple AirPods Pro (2nd generation)",
+      "appearance": { "value": "0x0941", "name": "Earbud" },
+      "adv": {
+        "name_pattern": null,
+        "address_type": "rpa",
+        "privacy_rotation_s": 900,
+        "interval_ms": [20, 20],
+        "tx_power_dbm": 4,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": "0x004C",
+      "manufacturer_data": {
+        "type": "0x07 (Proximity Pairing)",
+        "length": "0x19 (25 bytes)",
+        "fields": "status byte | model ID (uint16 LE) | device colour | battery nibbles for left/right/case | lid open counter | encrypted/obfuscated remainder",
+        "notes": "Battery levels are packed as 4-bit nibbles, value 15 = unknown. The lid open counter increments on each case open and is a strong correlation handle across address rotations."
+      },
+      "service_uuids": { "advertised": [], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F"] },
+      "gatt": [
+        { "uuid": "0x180F", "name": "Battery", "chars": [ { "uuid": "0x2A19", "props": ["read", "notify"] } ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works, proprietary account-key layer above", "bonding": true, "min_level": 2 },
+      "nuances": [
+        "Proximity Pairing frames are emitted at very high rate on case open (~20 ms) for roughly 30 s, then the device backs off substantially. The burst is the identifying behavior.",
+        "The lid open counter does not reset on address rotation, so it partially defeats the privacy of the RPA. This is a well documented and excellent teaching artifact: rotate the address, keep the counter, let students correlate.",
+        "Also emits Nearby (type 0x10) frames when connected to an iPhone, which is a different and shorter payload. Model both frame types.",
+        "Audio is Classic A2DP/AAC; the BLE surface is discovery and control only.",
+        "The full 25-byte payload plus flags leaves no room for a local name, which is why AirPods appear nameless in raw scans while iOS shows a friendly name from the model ID lookup. Students should learn that the name comes from a local database, not the packet."
+      ],
+      "confidence": "medium",
+      "verify": ["exact byte offsets of the battery nibbles", "model ID for the specific generation", "status byte bit meanings"]
+    },
+    {
+      "id": "apple_airtag",
+      "class": "specific",
+      "label": "Apple AirTag",
+      "appearance": { "value": "0x0200", "name": "Generic Tag" },
+      "adv": {
+        "name_pattern": null,
+        "address_type": "rpa",
+        "privacy_rotation_s": 900,
+        "interval_ms": [2000, 2000],
+        "tx_power_dbm": 4,
+        "connectable": false,
+        "scannable": false,
+        "pdu": "ADV_NONCONN_IND",
+        "phy": "1M"
+      },
+      "company_id": "0x004C",
+      "manufacturer_data": {
+        "type": "0x12 (Find My / Offline Finding)",
+        "near_owner": "Short frame, ~2 bytes of payload after the type/length. Emitted while the paired owner device is in range.",
+        "separated": "~25 byte frame carrying the truncated rotating public key, status byte, and the upper 2 bits of the key which are also encoded into the advertising address itself.",
+        "notes": "The advertising address is DERIVED from the rotating EC public key rather than randomly generated. The first byte of the address contains key bits. This is why address and payload rotate in lockstep."
+      },
+      "service_uuids": { "advertised": [], "gatt": ["0x1800", "0x1801", "0x180A", "<Find My 128-bit>"] },
+      "gatt": [
+        { "uuid": "<FindMy-128>", "name": "Find My Network", "chars": [ { "uuid": "<vendor-128>", "name": "Pairing/Config Control Point", "props": ["write", "indicate"] } ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Proprietary ECC pairing via owner device", "bonding": true, "min_level": 2 },
+      "nuances": [
+        "The address is not independent of the payload. A simulator that rolls a random RPA and separately rolls a payload is not modeling Find My correctly. Derive both from one rotating key.",
+        "Key rotation is on a 15 minute cadence for the address, with a longer daily key schedule underneath. Two nested rotation periods.",
+        "Two clearly distinct states: near-owner (short, quiet, low information) and separated (long payload, the crowd-sourced finding beacon). The transition happens after the owner has been out of range for a period. Model the timer.",
+        "Anti-stalking: after travelling with a stranger for a period, the tag plays a sound and becomes temporarily discoverable/connectable so it can be identified via NFC or BLE. Excellent full-scenario exercise.",
+        "Non-connectable in normal operation. It only becomes connectable for pairing or unwanted-tracking identification.",
+        "UWB (U1 chip) precision finding is out of band entirely and cannot be represented in a BLE-only medium. Note this limitation explicitly in your lab documentation so students do not chase it."
+      ],
+      "confidence": "medium",
+      "verify": ["exact separated-frame byte layout", "Find My service 128-bit UUID", "current rotation intervals"]
+    },
+    {
+      "id": "apple_watch_s9",
+      "class": "specific",
+      "label": "Apple Watch Series 9",
+      "appearance": { "value": "0x00C2", "name": "Smartwatch" },
+      "adv": {
+        "name_pattern": "{FirstName}'s Apple Watch",
+        "address_type": "rpa",
+        "privacy_rotation_s": 900,
+        "interval_ms": [20, 1285],
+        "tx_power_dbm": 4,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": "0x004C",
+      "manufacturer_data": {
+        "types": {
+          "0x10": "Nearby: status flags, action codes, wake/lock state, Wi-Fi state, authentication tag",
+          "0x0C": "Handoff: IV, AES-GCM auth tag, encrypted payload",
+          "0x05": "AirDrop",
+          "0x0B": "Watch Connection / Nearby Action variants"
+        }
+      },
+      "service_uuids": { "advertised": [], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x180D"] },
+      "gatt": [
+        { "uuid": "0x180D", "name": "Heart Rate", "chars": [ { "uuid": "0x2A37", "props": ["notify"] } ] },
+        { "uuid": "0x180F", "name": "Battery", "chars": [ { "uuid": "0x2A19", "props": ["read", "notify"] } ] }
+      ],
+      "security": { "io_cap": "DisplayYesNo", "method": "LE Secure Connections, proprietary continuity layer", "bonding": true, "min_level": 2 },
+      "nuances": [
+        "Nearby (0x10) frames leak device state: whether the screen is on, whether the device is locked, and Wi-Fi status. Even though the payload is partly obfuscated, the state transitions are observable. This is one of the highest-value passive-observation lessons available.",
+        "The device emits multiple different Apple frame types in the same session, sometimes concatenated into one manufacturer data field. Your parser and your generator both need to handle multiple TLVs inside one 0xFF AD structure.",
+        "Handoff frames appear only when the user switches apps and are AES-GCM encrypted with a sequence number that increments.",
+        "Advertises to a paired iPhone continuously but with a variable interval. This is not an intermittent device like a bare phone.",
+        "Local name is user-set and typically contains the owner's first name."
+      ],
+      "confidence": "medium",
+      "verify": ["Nearby status byte bit meanings for current watchOS", "which frame types the current OS actually emits"]
+    },
+    {
+      "id": "samsung_smarttag2",
+      "class": "specific",
+      "label": "Samsung Galaxy SmartTag2",
+      "appearance": { "value": "0x0200", "name": "Generic Tag" },
+      "adv": {
+        "name_pattern": "Smart Tag2",
+        "address_type": "rpa",
+        "privacy_rotation_s": 900,
+        "interval_ms": [1000, 2000],
+        "tx_power_dbm": 4,
+        "connectable": false,
+        "scannable": true,
+        "pdu": "ADV_SCAN_IND",
+        "phy": "1M"
+      },
+      "company_id": "0x0075",
+      "manufacturer_data": {
+        "layout": "75 00 | frame type | rotating privacy ID | status/battery flags",
+        "notes": "SmartThings Find payload. Rotates on a schedule similar to Find My."
+      },
+      "service_uuids": { "advertised": ["0xFD5A"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0xFD5A"] },
+      "gatt": [
+        { "uuid": "0xFD5A", "name": "Samsung SmartThings", "chars": [ { "uuid": "<vendor-128>", "name": "Control Point", "props": ["write", "notify"] } ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works plus proprietary key exchange via SmartThings Find", "bonding": true, "min_level": 2 },
+      "nuances": [
+        "Advertises service data under 0xFD5A in addition to manufacturer data under 0x0075. The dual-record structure distinguishes it from Apple tags at a glance and is a good classification exercise alongside AirTag.",
+        "Same near-owner vs separated state machine as AirTag, with different timers.",
+        "Has a physical button; button press changes advertising behavior (e.g. triggers a phone ring), so model an external event input to the simulator.",
+        "UWB present on SmartTag2, same out-of-band limitation as AirTag.",
+        "Battery is a replaceable CR2032 with a genuinely long life. Battery reporting appears in the adv flags, not just in GATT."
+      ],
+      "confidence": "medium",
+      "verify": ["0xFD5A service data byte layout", "frame type values", "rotation interval"]
+    },
+    {
+      "id": "tile_mate",
+      "class": "specific",
+      "label": "Tile Mate",
+      "appearance": { "value": "0x0200", "name": "Generic Tag" },
+      "adv": {
+        "name_pattern": "Tile",
+        "address_type": "random_static",
+        "privacy_rotation_s": null,
+        "interval_ms": [1000, 2000],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": null,
+      "service_uuids": {
+        "advertised": ["0xFEED", "0xFEEC"],
+        "gatt": ["0x1800", "0x1801", "0x180A", "0xFEED"],
+        "service_data_0x16": { "uuid": "0xFEED", "layout": "Tile ID / auth material, 8-13 bytes" }
+      },
+      "gatt": [
+        { "uuid": "0xFEED", "name": "Tile Service", "chars": [
+          { "uuid": "<vendor-128>", "name": "TOA Command", "props": ["write_no_response"] },
+          { "uuid": "<vendor-128>", "name": "TOA Response", "props": ["notify"] }
+        ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Tile Over Air (TOA) challenge-response with a per-device auth key", "bonding": false, "min_level": 1 },
+      "nuances": [
+        "Historically Tile used a STATIC identifier that did not rotate, making it trivially trackable. Newer firmware added rotation. Both variants are worth simulating so students can compare a privacy-broken device against a privacy-preserving one side by side.",
+        "Two different member UUIDs (0xFEED and 0xFEEC) appear depending on activation state and firmware generation. Confirm which your target firmware uses.",
+        "Tile is connectable in normal operation, unlike AirTag. Connect-and-enumerate works against it, which makes it a better first target for beginners.",
+        "Ring command goes over the TOA channel and requires a valid auth token, so naive replay fails.",
+        "No battery service on the sealed models; the battery is not user-replaceable on Mate."
+      ],
+      "confidence": "low",
+      "verify": ["which of 0xFEED / 0xFEEC applies to current firmware", "service data byte layout", "whether rotation is enabled on the target generation"]
+    },
+    {
+      "id": "chipolo_one",
+      "class": "specific",
+      "label": "Chipolo ONE",
+      "appearance": { "value": "0x0240", "name": "Keyring" },
+      "adv": {
+        "name_pattern": "Chipolo",
+        "address_type": "random_static",
+        "privacy_rotation_s": null,
+        "interval_ms": [500, 1500],
+        "tx_power_dbm": 4,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "Vendor identifier plus state flags.",
+      "service_uuids": { "advertised": ["<vendor 128-bit>"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x1802", "<vendor 128-bit>"] },
+      "gatt": [
+        { "uuid": "0x1802", "name": "Immediate Alert", "chars": [ { "uuid": "0x2A06", "props": ["write_no_response"] } ] },
+        { "uuid": "0x180F", "name": "Battery", "chars": [ { "uuid": "0x2A19", "props": ["read"] } ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works", "bonding": true, "min_level": 1 },
+      "nuances": [
+        "Note the product-line split: the plain Chipolo ONE uses Chipolo's own network and its own advertising format, while the Chipolo ONE Spot / POP variants ride Apple Find My or Google Find My Device and therefore emit those formats instead. Decide which variant you are simulating and label it clearly, because they look nothing alike on the wire.",
+        "Uses the standard Immediate Alert Service for ringing, often without authentication. This is the easiest 'make it beep' demo in the catalog and a good contrast against Tile's authenticated TOA.",
+        "Two-way finding: pressing the button on the Chipolo rings the phone. Model button-press as an external event.",
+        "Replaceable CR2032, so Battery Service is meaningful and should decay.",
+        "Static address on the non-Spot variant means persistent trackability."
+      ],
+      "confidence": "low",
+      "verify": ["vendor service UUID", "whether the target variant is own-network or Find My"]
+    },
+    {
+      "id": "fitbit_charge_6",
+      "class": "specific",
+      "label": "Fitbit Charge 6",
+      "appearance": { "value": "0x00C0", "name": "Generic Watch" },
+      "adv": {
+        "name_pattern": "Charge 6",
+        "address_type": "rpa",
+        "privacy_rotation_s": 900,
+        "interval_ms": [200, 1000],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": "0x00E0",
+      "manufacturer_data": "Google company ID since the acquisition. Payload carries a device/model identifier and pairing state.",
+      "service_uuids": {
+        "advertised": ["ADABFB00-6E7D-4601-BDA2-BFFAA68956BA", "0xFE2C"],
+        "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x180D", "ADABFB00-6E7D-4601-BDA2-BFFAA68956BA"]
+      },
+      "gatt": [
+        { "uuid": "ADABFB00-6E7D-4601-BDA2-BFFAA68956BA", "name": "Fitbit Service", "chars": [
+          { "uuid": "ADABFB01-6E7D-4601-BDA2-BFFAA68956BA", "name": "Live Data", "props": ["notify"] },
+          { "uuid": "ADABFB02-6E7D-4601-BDA2-BFFAA68956BA", "name": "Control", "props": ["write", "notify"] }
+        ] },
+        { "uuid": "0x180D", "name": "Heart Rate", "chars": [ { "uuid": "0x2A37", "props": ["notify"] } ] }
+      ],
+      "security": { "io_cap": "DisplayYesNo", "method": "Proprietary Fitbit pairing with on-device code, application-layer encryption", "bonding": true, "min_level": 2 },
+      "nuances": [
+        "Post-acquisition devices advertise under the Google company ID (0x00E0) and support Google Fast Pair (0xFE2C), which is a notable behavioral change from older Fitbit hardware. If your lab needs a period-accurate older Fitbit, that is a different profile.",
+        "Sync traffic is proprietary and application-layer encrypted. Even with a connection, characteristic values are opaque. Simulate the shape and timing of the traffic rather than pretending it is readable.",
+        "The standard Heart Rate Service may be present but return no data unless the device is in a specific broadcast mode that the user must enable. A service that exists but is silent is realistic and worth modeling deliberately.",
+        "Fast Pair advertising uses a rotating account key filter in the 0xFE2C service data, which is its own sub-protocol worth implementing if you want Fast Pair exercises."
+      ],
+      "confidence": "medium",
+      "verify": ["Fitbit 128-bit service base UUID against a live capture", "whether the target firmware advertises 0xFE2C"]
+    },
+    {
+      "id": "garmin_forerunner_265",
+      "class": "specific",
+      "label": "Garmin Forerunner 265",
+      "appearance": { "value": "0x00C1", "name": "Watch: Sports Watch" },
+      "adv": {
+        "name_pattern": "Forerunner 265",
+        "address_type": "random_static",
+        "privacy_rotation_s": null,
+        "interval_ms": [100, 1000],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": "0x0087",
+      "manufacturer_data": "Garmin device identifier and pairing state.",
+      "service_uuids": { "advertised": ["<Garmin GFDI 128-bit>"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x180D", "<Garmin GFDI 128-bit>"] },
+      "gatt": [
+        { "uuid": "<GFDI-128>", "name": "Garmin Device Interface", "chars": [
+          { "uuid": "<vendor-128>", "name": "GFDI Send", "props": ["write_no_response"] },
+          { "uuid": "<vendor-128>", "name": "GFDI Receive", "props": ["notify"] }
+        ] },
+        { "uuid": "0x180D", "name": "Heart Rate", "chars": [ { "uuid": "0x2A37", "props": ["notify"] }, { "uuid": "0x2A38", "props": ["read"] } ] }
+      ],
+      "security": { "io_cap": "DisplayOnly", "method": "Passkey displayed on watch", "bonding": true, "min_level": 3 },
+      "nuances": [
+        "Garmin watches also speak ANT+ on the same 2.4 GHz band. A BLE-only medium cannot represent ANT+, and a real capture of a Garmin ecosystem will include ANT+ traffic your students will not see. Document the gap.",
+        "Broadcast Heart Rate is an optional user-enabled mode. When on, the watch acts as a standard HRS peripheral to third-party devices. When off, 0x180D may be absent entirely. Two distinct GATT topologies from one device.",
+        "GFDI is a framed protocol over a write/notify characteristic pair with its own message IDs and CRC. Simulating it properly means implementing a framing layer, not just returning static values.",
+        "Uses a static random address, so despite being a modern device it is persistently trackable in many configurations.",
+        "Displays a numeric passkey for pairing, so IO capability is DisplayOnly and the pairing method is passkey entry, not Just Works. Good contrast against the earbuds and bands."
+      ],
+      "confidence": "low",
+      "verify": ["Garmin company ID 0x0087", "GFDI service and characteristic UUIDs from a live capture"]
+    },
+    {
+      "id": "whoop_4",
+      "class": "specific",
+      "label": "Whoop 4.0",
+      "appearance": { "value": "0x00C0", "name": "Generic Watch" },
+      "adv": {
+        "name_pattern": "WHOOP",
+        "address_type": "random_static",
+        "privacy_rotation_s": null,
+        "interval_ms": [200, 1000],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "Vendor payload, structure not publicly documented.",
+      "service_uuids": { "advertised": ["<vendor 128-bit>"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x180D", "<vendor 128-bit>"] },
+      "gatt": [
+        { "uuid": "<vendor-128>", "name": "Whoop Data Service", "chars": [
+          { "uuid": "<vendor-128>", "name": "Command", "props": ["write"] },
+          { "uuid": "<vendor-128>", "name": "Data", "props": ["notify"] }
+        ] },
+        { "uuid": "0x180D", "name": "Heart Rate", "chars": [ { "uuid": "0x2A37", "props": ["notify"] } ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works plus account-bound application layer", "bonding": true, "min_level": 2 },
+      "nuances": [
+        "No screen, no buttons in the usual sense. The only interface is BLE, which makes it a pure-radio device. Everything the user knows about it comes over this link.",
+        "Continuous 24/7 wear means it is always present in a scan of the wearer's vicinity, unlike a phone or scale. That persistence makes it a strong tracking target.",
+        "Broadcasts a standard Heart Rate Service in a user-enabled mode for gym equipment compatibility; otherwise the HR data is proprietary.",
+        "Battery pack is a separate slide-on device that also has its own state. Model battery-charging as a state that changes advertising behavior.",
+        "Because the protocol is undocumented, simulate plausible traffic shape and timing rather than claiming byte accuracy. Mark this sim explicitly as behavioral-only in your lab notes."
+      ],
+      "confidence": "low",
+      "verify": ["company ID", "service UUIDs", "whether standard HRS is exposed on current firmware"]
+    },
+    {
+      "id": "oura_ring_gen3",
+      "class": "specific",
+      "label": "Oura Ring Gen3",
+      "appearance": { "value": "0x0000", "name": "Unknown / Unspecified" },
+      "adv": {
+        "name_pattern": "Oura",
+        "address_type": "random_static",
+        "privacy_rotation_s": null,
+        "interval_ms": [500, 2000],
+        "tx_power_dbm": -4,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "Vendor payload, undocumented.",
+      "service_uuids": { "advertised": ["<vendor 128-bit>"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "<vendor 128-bit>"] },
+      "gatt": [
+        { "uuid": "<vendor-128>", "name": "Oura Service", "chars": [
+          { "uuid": "<vendor-128>", "name": "Command", "props": ["write"] },
+          { "uuid": "<vendor-128>", "name": "Data", "props": ["notify"] }
+        ] },
+        { "uuid": "0x180F", "name": "Battery", "chars": [ { "uuid": "0x2A19", "props": ["read", "notify"] } ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works plus account binding", "bonding": true, "min_level": 2 },
+      "nuances": [
+        "Extremely small antenna and low TX power. Range is short and RSSI is weak even at close distance. If your medium models path loss, this device should be near the noise floor at a few meters. That is a distinguishing physical characteristic worth preserving.",
+        "Syncs in bursts a few times per day rather than continuously, to preserve battery. Long silent periods punctuated by short connections.",
+        "No standard health services exposed; everything is proprietary. A student enumerating it finds almost nothing useful, which is itself a realistic and instructive outcome.",
+        "Appearance is typically unset (0x0000). Not every device populates Appearance, and simulators that always set it are unrealistic. Use this device to teach that.",
+        "Behavioral-only simulation. Do not claim byte accuracy."
+      ],
+      "confidence": "low",
+      "verify": ["company ID", "service UUIDs", "actual advertised local name format"]
+    },
+    {
+      "id": "xiaomi_mi_band_8",
+      "class": "specific",
+      "label": "Xiaomi Mi Band 8",
+      "appearance": { "value": "0x00C0", "name": "Generic Watch" },
+      "adv": {
+        "name_pattern": "Xiaomi Smart Band 8",
+        "address_type": "random_static",
+        "privacy_rotation_s": null,
+        "interval_ms": [200, 1000],
+        "tx_power_dbm": -4,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": "0x038F",
+      "manufacturer_data": "Xiaomi payload; MiBeacon-style framing on many Xiaomi products.",
+      "service_uuids": {
+        "advertised": ["0xFE95", "0xFEE0", "0xFEE1"],
+        "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x180D", "0xFEE0", "0xFEE1"],
+        "service_data_0x16": { "uuid": "0xFE95", "layout": "MiBeacon: frame control uint16 | product ID uint16 | frame counter uint8 | MAC (optional) | capability | encrypted or plaintext event payload" }
+      },
+      "gatt": [
+        { "uuid": "0xFEE0", "name": "Huami Basic Service", "chars": [ { "uuid": "<0000xxxx-0000-3512-2118-0009AF100700>", "name": "Various Huami chars", "props": ["read", "write", "notify"] } ] },
+        { "uuid": "0xFEE1", "name": "Huami Auth Service", "chars": [ { "uuid": "00000009-0000-3512-2118-0009AF100700", "name": "Auth", "props": ["write", "notify"] } ] },
+        { "uuid": "0x180D", "name": "Heart Rate", "chars": [ { "uuid": "0x2A37", "props": ["notify"] }, { "uuid": "0x2A39", "props": ["write"] } ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works link layer, AES-128 challenge-response auth over 0xFEE1", "bonding": false, "min_level": 1 },
+      "nuances": [
+        "The Huami 128-bit UUID base (...-0000-3512-2118-0009AF100700) is distinctive and well known from the Gadgetbridge reverse engineering work. Getting this base right makes the sim immediately recognizable to tooling.",
+        "Authentication is a three-step AES-128-ECB challenge-response over the auth characteristic in service 0xFEE1, using a key provisioned at first pairing. The link layer itself is unencrypted, so all of this is visible in a capture. That combination (visible crypto handshake over a plaintext link) is unusually good teaching material.",
+        "MiBeacon service data under 0xFE95 has a frame counter that increments per event and is a reliable correlation handle.",
+        "Static random address that does not rotate on most firmware. Persistently trackable.",
+        "Heart Rate Control Point (0x2A39) accepts vendor opcodes beyond the spec-defined reset, including one-shot measurement triggers. Undocumented control point opcodes are a good fuzzing target for an exercise."
+      ],
+      "confidence": "medium",
+      "verify": ["Xiaomi company ID 0x038F", "which of 0xFEE0/0xFEE1/0xFE95 the Band 8 generation actually advertises"]
+    },
+    {
+      "id": "polar_h10",
+      "class": "specific",
+      "label": "Polar H10 chest strap",
+      "appearance": { "value": "0x0341", "name": "Heart Rate Sensor: Belt" },
+      "adv": {
+        "name_pattern": "Polar H10 {8-digit-serial}",
+        "address_type": "public",
+        "privacy_rotation_s": null,
+        "interval_ms": [100, 350],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": "0x006B",
+      "manufacturer_data": "Polar identifier and sensor state.",
+      "service_uuids": { "advertised": ["0x180D"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x180D", "0x1810?", "<Polar PMD 128-bit>"] },
+      "gatt": [
+        { "uuid": "0x180D", "name": "Heart Rate", "chars": [
+          { "uuid": "0x2A37", "name": "Heart Rate Measurement", "props": ["notify"], "note": "Flags bit4 set: RR intervals included, units of 1/1024 s" },
+          { "uuid": "0x2A38", "name": "Body Sensor Location", "props": ["read"], "note": "0x01 Chest" },
+          { "uuid": "0x2A39", "props": ["write"] }
+        ] },
+        { "uuid": "<PMD-128>", "name": "Polar Measurement Data", "chars": [
+          { "uuid": "<vendor-128>", "name": "PMD Control Point", "props": ["read", "write", "indicate"] },
+          { "uuid": "<vendor-128>", "name": "PMD Data", "props": ["notify"] }
+        ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "none required for HRS", "bonding": false, "min_level": 1 },
+      "nuances": [
+        "This is the reference implementation of a clean, spec-correct Heart Rate Service. Use it as the known-good baseline against which students compare sloppier devices.",
+        "The local name contains the device serial number, which is printed on the physical strap. Name-to-hardware correlation without any connection is a nice OSINT point.",
+        "Supports two simultaneous BLE connections plus ANT+ at the same time. Multi-central support is unusual and worth modeling if your medium allows it.",
+        "The Polar Measurement Data service exposes raw ECG and accelerometer streams at high rate via a control-point-negotiated subscription. This is a much higher bandwidth path than the HRS notify and will stress your virtual medium's throughput. Good for testing the medium itself.",
+        "RR intervals are genuinely present and in 1/1024 s units. This device is the reason that unit trips people up.",
+        "No pairing required for HRS. Anyone in range can read a person's heart rate."
+      ],
+      "confidence": "medium",
+      "verify": ["Polar Electro company ID 0x006B", "PMD service and characteristic UUIDs"]
+    },
+    {
+      "id": "wahoo_tickr",
+      "class": "specific",
+      "label": "Wahoo TICKR heart rate monitor",
+      "appearance": { "value": "0x0341", "name": "Heart Rate Sensor: Belt" },
+      "adv": {
+        "name_pattern": "TICKR {n}",
+        "address_type": "public",
+        "privacy_rotation_s": null,
+        "interval_ms": [100, 350],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "Wahoo identifier.",
+      "service_uuids": { "advertised": ["0x180D"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x180D", "0x1814", "<Wahoo 128-bit>"] },
+      "gatt": [
+        { "uuid": "0x180D", "name": "Heart Rate", "chars": [ { "uuid": "0x2A37", "props": ["notify"] }, { "uuid": "0x2A38", "props": ["read"] } ] },
+        { "uuid": "0x1814", "name": "Running Speed and Cadence", "chars": [ { "uuid": "0x2A53", "props": ["notify"] }, { "uuid": "0x2A54", "props": ["read"] } ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "none", "bonding": false, "min_level": 1 },
+      "nuances": [
+        "Dual-broadcast: BLE and ANT+ simultaneously, like the Polar. ANT+ is outside your medium.",
+        "Also exposes Running Speed and Cadence from its onboard accelerometer, so it is a two-profile device. Useful for teaching that one peripheral can serve several standard profiles at once.",
+        "Supports multiple concurrent BLE connections (commonly 2-3) so a watch and a bike computer can both read it.",
+        "Unauthenticated, same privacy point as all fitness HRMs.",
+        "Auto-sleeps when removed from the body (no skin contact) and stops advertising entirely. Presence in a scan implies someone is wearing it right now."
+      ],
+      "confidence": "low",
+      "verify": ["Wahoo company ID", "vendor 128-bit service UUID"]
+    },
+    {
+      "id": "wahoo_kickr",
+      "class": "specific",
+      "label": "Wahoo KICKR smart trainer",
+      "appearance": { "value": "0x0480", "name": "Generic Cycling" },
+      "adv": {
+        "name_pattern": "KICKR {n}",
+        "address_type": "public",
+        "privacy_rotation_s": null,
+        "interval_ms": [100, 500],
+        "tx_power_dbm": 4,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "Wahoo identifier plus trainer state.",
+      "service_uuids": { "advertised": ["0x1826", "0x1818"], "gatt": ["0x1800", "0x1801", "0x180A", "0x1826", "0x1818", "0x1816", "<Wahoo 128-bit>"] },
+      "gatt": [
+        { "uuid": "0x1826", "name": "Fitness Machine (FTMS)", "chars": [
+          { "uuid": "0x2ACC", "name": "Fitness Machine Feature", "props": ["read"] },
+          { "uuid": "0x2AD2", "name": "Indoor Bike Data", "props": ["notify"] },
+          { "uuid": "0x2AD9", "name": "Fitness Machine Control Point", "props": ["write", "indicate"] },
+          { "uuid": "0x2ADA", "name": "Fitness Machine Status", "props": ["notify"] },
+          { "uuid": "0x2AD6", "name": "Supported Resistance Level Range", "props": ["read"] },
+          { "uuid": "0x2AD8", "name": "Supported Power Range", "props": ["read"] }
+        ] },
+        { "uuid": "0x1818", "name": "Cycling Power", "chars": [ { "uuid": "0x2A63", "props": ["notify"] }, { "uuid": "0x2A65", "props": ["read"] } ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "none", "bonding": false, "min_level": 1 },
+      "nuances": [
+        "This is a bidirectional control device, which is rare in this catalog. The FTMS Control Point lets a client set target resistance, target power, or simulation parameters (grade, wind, rolling resistance). Writes have physical consequences.",
+        "Control Point requires a Request Control (0x00) opcode before any other command, and the device replies with an indication carrying a result code. Sims that accept commands without the control request are wrong.",
+        "Only one client may hold control at a time; a second client's Request Control is rejected. That contention is a genuinely interesting exercise: hijacking control of a device someone else is using.",
+        "Unauthenticated. Anyone in range can request control and change the resistance on someone's trainer. Real, demonstrable, and safe to teach in a virtual medium.",
+        "Mains powered, no battery service.",
+        "Also exposes legacy Cycling Power and CSC services for older head units, so a single device with three overlapping profiles. Data must stay consistent across all three or students will notice."
+      ],
+      "confidence": "medium",
+      "verify": ["Wahoo company ID", "which FTMS optional features the target model declares"]
+    },
+    {
+      "id": "dexcom_g7",
+      "class": "specific",
+      "label": "Dexcom G7 CGM",
+      "appearance": { "value": "0x0D00", "name": "Continuous Glucose Monitor" },
+      "adv": {
+        "name_pattern": "DXCM{2-char-suffix}",
+        "address_type": "random_static",
+        "privacy_rotation_s": null,
+        "interval_ms": [1000, 2000],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "Dexcom payload including transmitter identifier.",
+      "service_uuids": { "advertised": ["F8083532-849E-531C-C594-30F1F86A4EA5"], "gatt": ["0x1800", "0x1801", "0x180A", "F8083532-849E-531C-C594-30F1F86A4EA5"] },
+      "gatt": [
+        { "uuid": "F8083532-849E-531C-C594-30F1F86A4EA5", "name": "Dexcom CGM Service", "chars": [
+          { "uuid": "F8083534-849E-531C-C594-30F1F86A4EA5", "name": "Control", "props": ["write", "indicate"] },
+          { "uuid": "F8083535-849E-531C-C594-30F1F86A4EA5", "name": "Authentication", "props": ["read", "write", "notify"] },
+          { "uuid": "F8083536-849E-531C-C594-30F1F86A4EA5", "name": "Backfill", "props": ["notify"] }
+        ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "AES-128 challenge-response using a key derived from the printed transmitter serial number", "bonding": true, "min_level": 2 },
+      "nuances": [
+        "Does NOT use the standard CGM service (0x181F). It uses a proprietary 128-bit service. This is the canonical example of a medical device ignoring the standard profile, and worth pairing with your generic CGM sim to show the contrast.",
+        "The authentication key is derived from the transmitter serial number printed on the device. Physical access to the label yields the crypto key. That physical-to-digital dependency is an outstanding teaching point and easy to stage in a lab.",
+        "Advertises in short windows around each measurement cycle (roughly every 5 minutes) rather than continuously, to save battery. The periodicity is highly regular and identifiable.",
+        "Backfill characteristic replays missed historical readings after a reconnection gap. Model a backlog buffer.",
+        "Session lifetime is finite (10 days plus grace). Model expiry.",
+        "Serial-derived names like DXCM followed by a short suffix appear in the clear and correlate to the physical device."
+      ],
+      "confidence": "medium",
+      "verify": ["G7 service UUID vs the G6 UUID listed here", "characteristic UUID suffixes", "current auth flow"]
+    },
+    {
+      "id": "omron_evolv",
+      "class": "specific",
+      "label": "Omron Evolv blood pressure monitor",
+      "appearance": { "value": "0x0382", "name": "Blood Pressure: Wrist" },
+      "adv": {
+        "name_pattern": "BLESmart_{hex}",
+        "address_type": "public",
+        "privacy_rotation_s": null,
+        "interval_ms": [100, 1000],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": "0x020E",
+      "manufacturer_data": "Omron identifier and pairing state.",
+      "service_uuids": { "advertised": ["0x1810"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0x1810", "0x181C", "<Omron 128-bit>"] },
+      "gatt": [
+        { "uuid": "0x1810", "name": "Blood Pressure", "chars": [
+          { "uuid": "0x2A35", "props": ["indicate"] },
+          { "uuid": "0x2A36", "props": ["notify"] },
+          { "uuid": "0x2A49", "props": ["read"] }
+        ] },
+        { "uuid": "0x181C", "name": "User Data", "chars": [ { "uuid": "0x2A9F", "name": "User Control Point", "props": ["write", "indicate"] } ] }
+      ],
+      "security": { "io_cap": "DisplayOnly", "method": "Pairing initiated by a physical button hold on the device", "bonding": true, "min_level": 3 },
+      "nuances": [
+        "Pairing mode requires a physical button press-and-hold and lasts only a short window. The device is otherwise not pairable, which is a good physical-access dependency to model.",
+        "The advertised name uses a BLESmart_ prefix followed by hex derived from the device identity. Recognizable naming convention.",
+        "Implements the standard Blood Pressure Service correctly, including indications and SFLOAT. Use as the spec-correct medical reference alongside Polar's spec-correct fitness reference.",
+        "Stores readings offline and transfers the backlog on next connection, so a first sync after a gap produces a burst of timestamped historical indications.",
+        "Advertises only after a measurement or a button press, then goes silent. Very low duty cycle.",
+        "User Data Service supports multiple users with a consent code, so measurements are attributed. Multi-user attribution is realistic for a household device."
+      ],
+      "confidence": "low",
+      "verify": ["Omron company ID 0x020E", "exact name prefix for the Evolv model", "whether 0x181C is present on this model"]
+    },
+    {
+      "id": "withings_body_plus",
+      "class": "specific",
+      "label": "Withings Body+ smart scale",
+      "appearance": { "value": "0x0C80", "name": "Weight Scale" },
+      "adv": {
+        "name_pattern": "Withings WBS{nn}",
+        "address_type": "public",
+        "privacy_rotation_s": null,
+        "interval_ms": [200, 1000],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "Withings identifier and model code.",
+      "service_uuids": { "advertised": ["<Withings 128-bit>"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "<Withings 128-bit>"] },
+      "gatt": [
+        { "uuid": "<Withings-128>", "name": "Withings Service", "chars": [
+          { "uuid": "<vendor-128>", "name": "Command", "props": ["write"] },
+          { "uuid": "<vendor-128>", "name": "Data", "props": ["notify"] }
+        ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works plus account binding during setup", "bonding": true, "min_level": 2 },
+      "nuances": [
+        "Wi-Fi is the primary sync path; BLE is used for setup and as a fallback. So in steady-state operation the BLE surface may be nearly dormant. Model the setup burst separately from steady state.",
+        "During setup the scale accepts Wi-Fi credentials over BLE. Credential capture during onboarding is the standout exercise for this device.",
+        "Does not use the standard Weight Scale Service. Another standards-ignoring example, this time in consumer rather than medical.",
+        "Wakes on step-on only. Extremely low duty cycle otherwise.",
+        "Multi-user recognition by weight means the device holds several user profiles, which is data at rest worth extracting in a forensics crossover."
+      ],
+      "confidence": "low",
+      "verify": ["Withings company ID", "vendor service UUIDs", "exact advertised name format"]
+    },
+    {
+      "id": "meater_plus",
+      "class": "specific",
+      "label": "MEATER Plus wireless cooking probe",
+      "appearance": { "value": "0x0300", "name": "Generic Thermometer" },
+      "adv": {
+        "name_pattern": "MEATER",
+        "address_type": "public",
+        "privacy_rotation_s": null,
+        "interval_ms": [500, 1000],
+        "tx_power_dbm": 4,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "Probe temperatures sometimes present in the payload.",
+      "service_uuids": { "advertised": ["<vendor 128-bit>"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "<vendor 128-bit>"] },
+      "gatt": [
+        { "uuid": "<vendor-128>", "name": "MEATER Service", "chars": [
+          { "uuid": "<vendor-128>", "name": "Temperature", "props": ["notify"], "note": "Two probes: internal (tip) and ambient (handle), reported together" },
+          { "uuid": "<vendor-128>", "name": "Battery/Status", "props": ["read", "notify"] }
+        ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "none", "bonding": false, "min_level": 1 },
+      "nuances": [
+        "Two temperature sensors in one device, internal and ambient, reported in a single notification. Simulators that model one temperature miss the product's entire premise.",
+        "The Plus model includes a repeater in the charging block that extends range; the probe itself talks to the block, and the block relays. If you want to model the topology faithfully you need two simulated nodes, not one.",
+        "Temperature ranges are far outside medical bounds (ambient up to ~275 C). A sim reusing medical thermometer value clamping will produce impossible readings.",
+        "Unauthenticated. Anyone can read what someone is cooking and how done it is. Trivial, harmless, and a genuinely fun first exercise for students.",
+        "The probe is off and silent when in the charging block. It powers on when removed. Physical state drives radio state."
+      ],
+      "confidence": "low",
+      "verify": ["vendor service UUIDs", "notification payload layout", "whether temps appear in adv data"]
+    },
+    {
+      "id": "august_smart_lock_4",
+      "class": "specific",
+      "label": "August Smart Lock (4th gen)",
+      "appearance": { "value": "0x0701", "name": "Access Control: Door Lock" },
+      "adv": {
+        "name_pattern": "August",
+        "address_type": "rpa",
+        "privacy_rotation_s": 900,
+        "interval_ms": [500, 1500],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "August identifier and lock state flags.",
+      "service_uuids": { "advertised": ["0xFE24"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "0xFE24", "<August 128-bit>"] },
+      "gatt": [
+        { "uuid": "<August-128>", "name": "August Lock Service", "chars": [
+          { "uuid": "<vendor-128>", "name": "Write (command)", "props": ["write"] },
+          { "uuid": "<vendor-128>", "name": "Read (response)", "props": ["notify"] },
+          { "uuid": "<vendor-128>", "name": "Secure Write", "props": ["write"] },
+          { "uuid": "<vendor-128>", "name": "Secure Read", "props": ["notify"] }
+        ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works link layer; AES-CBC/CCM session with handshake key and session key at application layer", "bonding": false, "min_level": 1 },
+      "nuances": [
+        "Four-characteristic architecture: an unencrypted pair used only to establish a session, and a secure pair used for everything after. The handshake on the plaintext pair is fully visible in a capture, and the session key derivation is the crux. This is the single best smart-lock teaching case in the catalog.",
+        "Keys are provisioned by the August cloud to the phone app. Without a valid handshake key, a captured unlock command is useless. Build the sim so replay genuinely fails.",
+        "Commands are fixed-size (18-byte) frames with a CRC and a security checksum. Frame structure matters; a byte-stream simulator will not behave correctly.",
+        "Always advertising because it must be reachable. Combined with an RPA, it is a persistent-but-privacy-conscious device, an unusual combination worth pointing out.",
+        "Auto-unlock works by the phone detecting proximity via BLE RSSI and geofence. RSSI-based proximity as a security decision is a legitimate vulnerability class to explore in a medium where you control RSSI.",
+        "Battery state is security-relevant. Model low-battery behavior."
+      ],
+      "confidence": "medium",
+      "verify": ["0xFE24 assignment to August Home", "characteristic UUIDs", "current firmware handshake details"]
+    },
+    {
+      "id": "yale_assure_lock_2",
+      "class": "specific",
+      "label": "Yale Assure Lock 2",
+      "appearance": { "value": "0x0701", "name": "Access Control: Door Lock" },
+      "adv": {
+        "name_pattern": "Yale-{n}",
+        "address_type": "rpa",
+        "privacy_rotation_s": 900,
+        "interval_ms": [500, 2000],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "ASSA ABLOY / Yale identifier plus module state.",
+      "service_uuids": { "advertised": ["<vendor 128-bit>", "0xFD5A?"], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "<vendor 128-bit>"] },
+      "gatt": [
+        { "uuid": "<vendor-128>", "name": "Yale Lock Service", "chars": [
+          { "uuid": "<vendor-128>", "name": "Command", "props": ["write"] },
+          { "uuid": "<vendor-128>", "name": "Response", "props": ["notify"] }
+        ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Application-layer authenticated session", "bonding": false, "min_level": 1 },
+      "nuances": [
+        "Modular radio design: the same lock body accepts different smart modules (Wi-Fi, Z-Wave, Matter/Thread). The BLE surface changes depending on which module is installed. Pick a module and document it, or your sim describes a device that does not exist.",
+        "Matter-enabled variants advertise a Matter commissionable node payload, which is a completely different and standardized format from any vendor blob. If you want Matter, that is a distinct simulator class with its own service data structure and discriminator/vendor ID/product ID fields.",
+        "Physical keypad means an out-of-band credential path exists that BLE cannot observe. Good for teaching that the radio is not the whole attack surface.",
+        "Always advertising, same reachability requirement as August.",
+        "Contrast this with the August entry deliberately: two locks, two architectures, and the module question makes Yale the messier realistic case."
+      ],
+      "confidence": "low",
+      "verify": ["which smart module is being simulated", "vendor service UUIDs", "whether the target is a Matter variant"]
+    },
+    {
+      "id": "philips_hue_bulb",
+      "class": "specific",
+      "label": "Philips Hue bulb (Bluetooth-capable)",
+      "appearance": { "value": "0x07C2", "name": "Light Source: LED Lamp" },
+      "adv": {
+        "name_pattern": "Hue Lamp",
+        "address_type": "public",
+        "privacy_rotation_s": null,
+        "interval_ms": [500, 1000],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "Signify identifier.",
+      "service_uuids": { "advertised": ["0xFE0F"], "gatt": ["0x1800", "0x1801", "0x180A", "0xFE0F", "932C32BD-0000-47A2-835A-A8D455B859DD"] },
+      "gatt": [
+        { "uuid": "932C32BD-0000-47A2-835A-A8D455B859DD", "name": "Hue Light Control", "chars": [
+          { "uuid": "932C32BD-0002-47A2-835A-A8D455B859DD", "name": "On/Off", "props": ["read", "write", "notify"], "note": "single byte 0x00/0x01" },
+          { "uuid": "932C32BD-0003-47A2-835A-A8D455B859DD", "name": "Brightness", "props": ["read", "write"], "note": "single byte 1-254" },
+          { "uuid": "932C32BD-0005-47A2-835A-A8D455B859DD", "name": "Color Temperature", "props": ["read", "write"] },
+          { "uuid": "932C32BD-0007-47A2-835A-A8D455B859DD", "name": "Color (CIE xy)", "props": ["read", "write"] }
+        ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "Just Works; encryption required for control characteristics on current firmware", "bonding": true, "min_level": 2 },
+      "nuances": [
+        "The 932C32BD base UUID with a varying middle field is a well-known and heavily documented pattern from community reverse engineering. Getting the base right makes existing third-party tools work against your sim, which is a strong validation signal.",
+        "Color is CIE xy chromaticity as two uint16 values, NOT RGB. Converting RGB to xy is a real step; a sim accepting RGB is wrong.",
+        "Zigbee is the primary protocol when a Hue Bridge is present. The BLE control path is the bridgeless mode and is deliberately limited to ~10 lights. Which mode you simulate changes everything.",
+        "Firmware history matters here: earlier firmware allowed unauthenticated writes to the control characteristics; later firmware requires an encrypted link. Shipping both variants gives you a before/after patch-analysis exercise, which is a strong lesson.",
+        "Mains powered, no battery service.",
+        "Bulbs are deployed in groups, so simulate several with sequential addresses from one OUI to create realistic scan density."
+      ],
+      "confidence": "medium",
+      "verify": ["0xFE0F assignment to Signify", "characteristic UUID middle-field values for the target firmware"]
+    },
+    {
+      "id": "govee_led_strip",
+      "class": "specific",
+      "label": "Govee H6159 LED strip",
+      "appearance": { "value": "0x07C6", "name": "Light Source: Multi-Color LED Array" },
+      "adv": {
+        "name_pattern": "ihoment_H6159_{4hex}",
+        "address_type": "public",
+        "privacy_rotation_s": null,
+        "interval_ms": [200, 500],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": null,
+      "manufacturer_data": "Govee payload; company ID field is frequently non-registered or reused, which is itself notable.",
+      "service_uuids": { "advertised": ["00010203-0405-0607-0809-0A0B0C0D1910"], "gatt": ["0x1800", "0x1801", "0x180A", "00010203-0405-0607-0809-0A0B0C0D1910"] },
+      "gatt": [
+        { "uuid": "00010203-0405-0607-0809-0A0B0C0D1910", "name": "Govee Control Service", "chars": [
+          { "uuid": "00010203-0405-0607-0809-0A0B0C0D2B11", "name": "Command Write", "props": ["write_no_response"], "note": "Fixed 20-byte packet: 0x33 | command | payload | XOR checksum in byte 19" },
+          { "uuid": "00010203-0405-0607-0809-0A0B0C0D2B10", "name": "Notify", "props": ["notify"] }
+        ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "none", "bonding": false, "min_level": 1 },
+      "nuances": [
+        "The service UUID is the literal ascending byte sequence 00010203-0405-0607-0809-0A0B0C0D followed by a product-specific tail. That is a copy-paste from a vendor SDK example and is a beautiful real-world artifact. Students who recognize a placeholder UUID learn something about how firmware actually gets built.",
+        "Commands are fixed 20-byte packets starting with 0x33, with a simple XOR checksum in the final byte. No encryption, no authentication, no session. This is the maximally-insecure end of the spectrum and pairs perfectly against the August lock as the other extreme.",
+        "The naming prefix 'ihoment' is a legacy brand name that persists in firmware, another real-world artifact worth preserving in the sim.",
+        "Fully unauthenticated control. Anyone in range changes the lights. Immediate, visible, harmless payoff for a first exploit.",
+        "Mains powered.",
+        "Some Govee models also broadcast sensor data (temp/humidity variants) in manufacturer data with no connection required."
+      ],
+      "confidence": "medium",
+      "verify": ["exact characteristic UUID tails for H6159", "command opcode table", "company ID actually used in adv"]
+    },
+    {
+      "id": "ruuvitag",
+      "class": "specific",
+      "label": "RuuviTag environmental sensor",
+      "appearance": { "value": "0x0540", "name": "Generic Sensor" },
+      "adv": {
+        "name_pattern": "Ruuvi {4hex}",
+        "address_type": "random_static",
+        "privacy_rotation_s": null,
+        "interval_ms": [1285, 1285],
+        "tx_power_dbm": 4,
+        "connectable": false,
+        "scannable": true,
+        "pdu": "ADV_SCAN_IND",
+        "phy": "1M"
+      },
+      "company_id": "0x0499",
+      "manufacturer_data": {
+        "format": "5 (RAWv2)",
+        "length_bytes": 24,
+        "layout": [
+          "byte 0: format version = 0x05",
+          "bytes 1-2: temperature, int16 BE, 0.005 C per LSB",
+          "bytes 3-4: humidity, uint16 BE, 0.0025 % per LSB",
+          "bytes 5-6: pressure, uint16 BE, Pascals minus 50000 offset",
+          "bytes 7-8: acceleration X, int16 BE, milli-g",
+          "bytes 9-10: acceleration Y, int16 BE, milli-g",
+          "bytes 11-12: acceleration Z, int16 BE, milli-g",
+          "bytes 13-14: power info, uint16 BE: upper 11 bits battery voltage above 1600 mV in 1 mV steps, lower 5 bits TX power as (value * 2) - 40 dBm",
+          "byte 15: movement counter, uint8, wraps at 255",
+          "bytes 16-17: measurement sequence number, uint16 BE, wraps at 65535",
+          "bytes 18-23: MAC address"
+        ],
+        "invalid_values": "0x8000 for signed fields, 0xFFFF for unsigned fields indicate 'not available'"
+      },
+      "service_uuids": { "advertised": [], "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "Nordic UART Service"] },
+      "gatt": [
+        { "uuid": "6E400001-B5A3-F393-E0A9-E50E24DCCA9E", "name": "Nordic UART Service", "chars": [
+          { "uuid": "6E400002-B5A3-F393-E0A9-E50E24DCCA9E", "name": "RX", "props": ["write", "write_no_response"] },
+          { "uuid": "6E400003-B5A3-F393-E0A9-E50E24DCCA9E", "name": "TX", "props": ["notify"] }
+        ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "none", "bonding": false, "min_level": 1 },
+      "nuances": [
+        "Fully open, fully documented format. This is the one device in the catalog where you can be byte-exact with confidence, which makes it the ideal ground-truth target for validating your students' parsers.",
+        "Big-endian multi-byte fields, which is unusual for BLE and a deliberate gotcha. The BLE spec is little-endian; RuuviTag is not. Students who assume LE will get garbage.",
+        "The MAC address is included IN the payload as well as in the packet header. Redundant, and useful for teaching that identifiers appear in multiple layers.",
+        "The measurement sequence number is monotonic and wraps. It is the cleanest correlation handle in the catalog and a good first exercise in tracking across packets.",
+        "The movement counter increments on accelerometer-detected motion. Model it as event-driven, not time-driven, so a stationary tag has a flat counter and a disturbed one jumps.",
+        "Non-connectable by default in broadcast mode; connectable modes exist in other firmware profiles. Firmware mode changes the device's entire behavior.",
+        "Nordic UART Service present in connectable firmware, which reveals the underlying nRF52 SoC. Chipset fingerprinting from service UUIDs is a good skill to teach."
+      ],
+      "confidence": "high",
+      "verify": []
+    },
+    {
+      "id": "victron_smartshunt",
+      "class": "specific",
+      "label": "Victron SmartShunt battery monitor",
+      "appearance": { "value": "0x0780", "name": "Generic Power Device" },
+      "adv": {
+        "name_pattern": "SmartShunt HQ{serial}",
+        "address_type": "public",
+        "privacy_rotation_s": null,
+        "interval_ms": [1000, 1000],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": "0x02E1",
+      "manufacturer_data": {
+        "layout": "E1 02 | 0x10 (manufacturer data record type) | product ID uint16 LE | record type | nonce/data counter uint16 LE | first byte of encryption key | AES-CTR encrypted payload",
+        "notes": "The 'Instant Readout' broadcast. Payload is AES-128-CTR encrypted with a per-device key the user retrieves from the VictronConnect app. The nonce is the data counter, transmitted in the clear."
+      },
+      "service_uuids": { "advertised": [], "gatt": ["0x1800", "0x1801", "0x180A", "<Victron VE.Direct 128-bit>"] },
+      "gatt": [
+        { "uuid": "<VEDirect-128>", "name": "VE.Direct over BLE", "chars": [
+          { "uuid": "<vendor-128>", "name": "TX", "props": ["write"] },
+          { "uuid": "<vendor-128>", "name": "RX", "props": ["notify"] }
+        ] }
+      ],
+      "security": { "io_cap": "DisplayOnly", "method": "PIN-protected connection (default PIN 000000), separate broadcast encryption key", "bonding": true, "min_level": 2 },
+      "nuances": [
+        "This is the best encrypted-broadcast teaching device available. The payload is genuinely encrypted, the nonce is in the clear, and the key is obtainable through legitimate physical/app access. It supports a complete lesson: capture, identify the crypto, obtain the key out of band, decrypt.",
+        "The first byte of the encryption key is transmitted in the clear as a key-check byte. A one-byte oracle for verifying you have the right key. Small, elegant, and a great detail to make students notice.",
+        "AES-CTR with a counter nonce means nonce reuse across a device reset is a real concern. If you want an advanced exercise, ship a variant that resets its counter on reboot and let students exploit the keystream reuse.",
+        "Default connection PIN of 000000 on many units. Default credentials, in 2026, on a device controlling battery systems.",
+        "Broadcast interval is a steady 1 Hz, giving a very regular capture that is easy to work with for teaching.",
+        "Serial number is in the advertised local name and correlates to the physical device label."
+      ],
+      "confidence": "medium",
+      "verify": ["Victron company ID 0x02E1", "record type byte values for SmartShunt specifically", "VE.Direct service UUIDs"]
+    },
+    {
+      "id": "nordic_nrf52840_dk",
+      "class": "specific",
+      "label": "Nordic nRF52840 Development Kit",
+      "appearance": { "value": "0x0000", "name": "Unknown / Unspecified" },
+      "adv": {
+        "name_pattern": "Nordic_UART_Service",
+        "address_type": "random_static",
+        "privacy_rotation_s": null,
+        "interval_ms": [40, 40],
+        "tx_power_dbm": 0,
+        "connectable": true,
+        "scannable": true,
+        "pdu": "ADV_IND",
+        "phy": "1M"
+      },
+      "company_id": "0x0059",
+      "manufacturer_data": "Nordic company ID, often with sample-app placeholder bytes.",
+      "service_uuids": {
+        "advertised": ["6E400001-B5A3-F393-E0A9-E50E24DCCA9E", "0xFE59"],
+        "gatt": ["0x1800", "0x1801", "0x180A", "0x180F", "6E400001-B5A3-F393-E0A9-E50E24DCCA9E", "0xFE59"]
+      },
+      "gatt": [
+        { "uuid": "6E400001-B5A3-F393-E0A9-E50E24DCCA9E", "name": "Nordic UART Service", "chars": [
+          { "uuid": "6E400002-B5A3-F393-E0A9-E50E24DCCA9E", "name": "RX (central writes here)", "props": ["write", "write_no_response"] },
+          { "uuid": "6E400003-B5A3-F393-E0A9-E50E24DCCA9E", "name": "TX (peripheral notifies)", "props": ["notify"] }
+        ] },
+        { "uuid": "0xFE59", "name": "Nordic Secure DFU", "chars": [
+          { "uuid": "8EC90001-F315-4F60-9FB8-838830DAEA50", "name": "DFU Control Point", "props": ["write", "indicate"] },
+          { "uuid": "8EC90002-F315-4F60-9FB8-838830DAEA50", "name": "DFU Packet", "props": ["write_no_response"] }
+        ] }
+      ],
+      "security": { "io_cap": "NoInputNoOutput", "method": "none in default samples; DFU uses signed image verification", "bonding": false, "min_level": 1 },
+      "nuances": [
+        "The single most important device in the catalog for teaching fingerprinting. The default sample-app names, the NUS UUIDs, and the Nordic company ID all appear unmodified in an enormous number of shipped commercial products because vendors never change them. Recognizing NUS tells you the SoC family and often that the firmware is barely customized.",
+        "Nordic UART Service naming is from the peripheral's perspective: the central WRITES to the characteristic named RX and RECEIVES notifications from the one named TX. This inversion confuses nearly everyone the first time.",
+        "0xFE59 Secure DFU is the firmware update path. Buttonless DFU (triggered by a GATT write rather than a physical button) is common and is a legitimate attack surface. Images are signed, so unsigned uplooads should fail, but many products ship with the sample signing key.",
+        "The 40 ms advertising interval is the SDK sample default and is another firmware fingerprint.",
+        "Supports 2M PHY and Coded PHY (long range) and extended advertising. This is the right device to use for exercising the extended-advertising paths in your virtual medium, which most of the other catalog entries never touch.",
+        "Appearance unset in most samples. Another default-values fingerprint.",
+        "This device belongs in every lab as the deliberate 'default configuration' target."
+      ],
+      "confidence": "high",
+      "verify": ["DFU characteristic UUIDs against the SDK version you are targeting"]
+    }
+  ],
+
+  "simulator_implementation_notes": {
+    "shared_state_machine": "Almost every entry needs at least three states: dormant/asleep, advertising/discoverable, and connected. Several need more (pairing mode, separated mode, setup/onboarding mode, session-expired). Build the state machine as a first-class concept in the generator rather than bolting it on per device.",
+    "payload_budget": "Legacy advertising PDUs carry 31 bytes of AD structures, and each structure costs 1 length byte plus 1 type byte. Validate every generated payload against this limit. Overflow must go to SCAN_RSP (another 31 bytes) or extended advertising. Devices flagged with large manufacturer data (iBeacon, AirTag separated, RuuviTag) are at or near the limit and cannot also carry a local name.",
+    "encoding_pitfalls": [
+      "IEEE-11073 SFLOAT (16-bit) for blood pressure, glucose, pulse ox, weight.",
+      "IEEE-11073 FLOAT (32-bit) for health thermometer.",
+      "Plain scaled integers for Environmental Sensing (0.01 C, 0.01 %, 0.1 Pa).",
+      "Big-endian for iBeacon major/minor and for the entire RuuviTag payload. Little-endian everywhere else.",
+      "1/1024 second time units in heart rate RR intervals and cycling last-event-time, with a 64 second wrap on the latter."
+    ],
+    "identity_and_privacy": "Group the catalog into three tracking classes and make sure your lab has all three: public address (trivially trackable, and OUI-attributable), static random (trackable but not vendor-attributable), and RPA (requires IRK resolution). Then add the interesting fourth case: devices that rotate addresses but leak a correlatable counter or identifier in the payload anyway. AirPods lid counter, RuuviTag sequence number, and MiBeacon frame counter are your examples.",
+    "security_spectrum": "Order the devices deliberately from open to hardened for curriculum progression: Govee strip (nothing) to Meater and cycling sensors (nothing, but harmless) to heart rate straps (nothing, but privacy-sensitive) to Hue (link encryption) to Mi Band (visible app-layer challenge-response) to Dexcom (key from physical label) to August (proper session crypto). That ladder is more valuable than any individual sim.",
+    "medium_stress_tests": "Polar H10 raw ECG streaming and Nordic DK extended advertising / Coded PHY are the two entries that will exercise throughput and PHY handling in your virtual Bluetooth medium rather than just the GATT layer. Use them to validate the medium itself before validating the sims.",
+    "things_this_catalog_cannot_represent": [
+      "Classic BR/EDR audio paths (speakers, earbuds, most headsets).",
+      "UWB precision finding (AirTag, SmartTag2).",
+      "ANT+ dual-broadcast (Garmin, Polar, Wahoo).",
+      "Zigbee/Thread/Matter transports (Hue with bridge, Yale with certain modules).",
+      "Document these gaps in student-facing material so nobody chases a signal that cannot exist in the medium."
+    ]
+  }
+}
